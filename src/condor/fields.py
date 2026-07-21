@@ -347,6 +347,7 @@ class Field:
     def __getattr__(self, with_name):
         """Make element names dot-accessible on Field, to match behavior on field
         dataclass"""
+        # breakpoint()
         return self.get(name=with_name).backend_repr
 
     def dataclass_of(self, attr="backend_repr", default=None):
@@ -921,11 +922,14 @@ class MatchedField(Field):
         else:
             msg = f"Could not find match for {key}"
             raise ValueError(msg)
+        # breakpoint()
         return match
 
     def __setitem__(self, key, value):
         match = self.key_to_matched_element(key)
+        # breakpoint()
         existing_elem = self.get(match=match)
+        # breakpoint()
         if not isinstance(existing_elem, list):
             log.debug("OVER-WRITING %s!!!", existing_elem)
             # TODO verify shape etc?
@@ -963,12 +967,15 @@ class MatchedField(Field):
         get the matched symbodl by the matche's name, backend symbol, or symbol
         """
         match = self.key_to_matched_element(key)
+        # breakpoint()
         item = self.get(match=match)
+        # breakpoint()
         if isinstance(item, list) and self._direction != Direction.input:
             # TODO: could easily create a new symbol related to match; should it depend
             # on direction? Does matched need two other direction options for internal
             # get vs set? or is that a separate type of matchedfield?
             raise KeyError
+            # return item.backend_repr
         return item.backend_repr
 
     def dataclass_of(self, on_field=None):
@@ -995,3 +1002,20 @@ class MatchedField(Field):
         own copies of the matching fields
         """
         return self.dataclass_of(on_field).flatten()
+
+
+class FreeMatchedField(MatchedField, element_class=MatchedElement):
+    def __setitem__(self, key, value):
+        raise ValueError
+
+    def __getitem__(self, key, **kwargs):
+        match = self.key_to_matched_element(key)
+        item = self.get(match=match)
+        # if the matching element does not exist then create the symbol
+        if isinstance(item, list) and not item:  # based on FreeField()
+            backend_name = f"{self._resolve_name}_{len(self._elements)}"
+            new_kwargs = make_backend_symbol(backend_name=backend_name, **kwargs)
+            self.create_element(**new_kwargs, match=match)
+            return self._elements[-1].backend_repr
+        # otherwise return the symbol of the existing matching element
+        return item.backend_repr
