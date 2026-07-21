@@ -119,17 +119,22 @@ class DAEAnalysisImplementation:
         # it works fro any DAE system
         tspan = np.logspace(-6, 6, 50)
         solver = ida.IDA(residualfunction, atol=1e-8, algebraic_idx=[2])
-        soln = solver.solve(tspan, self.initial_state, self.initial_dot)
+        self.soln = solver.solve(tspan, self.initial_state, self.initial_dot)
+
+        self(model_instance)
+
+    # TODO: __call__ will return pysundae solution
+    def __call__(self, model_instance):
+        soln = self.soln
+        print(soln)
+        # model_instance._soln = soln
         soln.y[:, 1] *= 1e4  # scale y1 values for plotting
         plt.semilogx(soln.t, soln.y)
         plt.legend(["y0", "y1", "y2"])
         plt.xlabel("Time (s), $t$")
         plt.ylabel("Concentration, $c$")
         plt.show()
-
-    # TODO: __call__ will return pysundae solution
-    def __call__(self, model_instance):
-        pass
+        # breakpoint()
         # breakpoint()
         # print(soln)
         # soln.y[:,1] *= 1e4 #scale y1 values for plotting
@@ -186,37 +191,37 @@ class RobertsonProblem(DAESystem):
     reactant_a = differential_state()
     reactant_b = differential_state()
 
-    reactant_b_ic = parameter()
+    reactant_a_ic = parameter()
     reactant_b_ic = parameter()
     product_ab_ic = parameter()
     reactant_dot_a_ic = parameter()
     reactant_dot_b_ic = parameter()
     product_dot_ab_ic = parameter()
 
-    initial_residual(reactant_A == reactant_A_IC)
-    initial_residual(reactant_B == reactant_B_IC)
-    initial_residual(product_AB == product_AB_IC)
-    initial_residual(dot[reactant_A] == reactant_dot_A_IC)
-    initial_residual(dot[reactant_B] == reactant_dot_B_IC)
+    initial_residual(reactant_a == reactant_a_ic)
+    initial_residual(reactant_b == reactant_b_ic)
+    initial_residual(product_ab == product_ab_ic)
+    initial_residual(dot[reactant_a] == reactant_dot_a_ic)
+    initial_residual(dot[reactant_b] == reactant_dot_b_ic)
 
-    residual(dot[reactant_A] == -const1 * reactant_A + const2 * reactant_B * product_AB)
+    residual(dot[reactant_a] == -const1 * reactant_a + const2 * reactant_b * product_ab)
     residual(
-        dot[reactant_B]
-        == const1 * reactant_A
-        - const2 * reactant_B * product_AB
-        - const3 * (reactant_B**2)
+        dot[reactant_b]
+        == const1 * reactant_a
+        - const2 * reactant_b * product_ab
+        - const3 * (reactant_b**2)
     )
-    residual(reactant_A + reactant_B + product_AB == 1)
+    residual(reactant_a + reactant_b + product_ab == 1)
 
 
 RobertsonProblem(
     const1=0.04,
     const2=1e4,
     const3=3e7,
-    reactant_A_IC=1,
-    reactant_B_IC=0,
-    product_AB_IC=0,
-    reactant_dot_A_IC=-0.04,
-    reactant_dot_B_IC=0.04,
-    product_dot_AB_IC=0,
+    reactant_a_ic=1,
+    reactant_b_ic=0,
+    product_ab_ic=0,
+    reactant_dot_a_ic=-0.04,
+    reactant_dot_b_ic=0.04,
+    product_dot_ab_ic=0,
 )
