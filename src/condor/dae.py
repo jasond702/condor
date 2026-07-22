@@ -12,7 +12,9 @@ from condor.backend import (  # probably need these
     expression_to_operator,
     process_relational_element,
 )
-from condor.backend.operators import substitute  # probably need
+
+# from condor.backend.operators import substitute  # probably need
+from condor.backend.operators import pi, substitute
 from condor.fields import (  # keep all fields?
     AssignedField,
     Direction,
@@ -46,6 +48,13 @@ class DAEAnalysisImplementation:
         self.initial_residual = self.model.initial_residual.flatten()
         self.residual = self.model.residual.flatten()
         self.output = self.model.output.flatten()
+        breakpoint()
+
+        self.state_count = (
+            self.differential_state.shape[0] + self.algebraic_state.shape[0]
+        )
+        self.dot_count = self.dot.shape[0]
+        self.count_diff = self.state_count - self.dot_count
 
         # solve for the initial conditions from the initial residuals
         class DAEInitialConditionSolve(AlgebraicSystem):
@@ -76,7 +85,10 @@ class DAEAnalysisImplementation:
             for elem in self.model.initial_residual:
                 residual(substitute(elem.backend_repr, input_dict))
 
+            breakpoint()
+
         self.initial_conditions = DAEInitialConditionSolve(**model_instance.parameter)
+        breakpoint()
 
         # create 2 vectors that have ICs for the states and dots
         self.initial_state = []
@@ -94,9 +106,9 @@ class DAEAnalysisImplementation:
             )
 
         if len(self.initial_state) < len(self.initial_dot):
-            self.initial_state.append(0)
+            self.initial_state.extend([0] * self.count_diff)
         elif len(self.initial_state) > len(self.initial_dot):
-            self.initial_dot.append(0)
+            self.initial_dot.extend([0] * self.count_diff)
 
         self.residual_vars = [
             self.differential_state,
@@ -109,39 +121,85 @@ class DAEAnalysisImplementation:
             self.residual,
             f"{self.model.__name__}_residual",
         )
+        breakpoint()
 
         def residualfunction(t, y, yp, res):
             res[:, None] = self.residual_func(
-                y[:2], y[2], yp[:2], self.initial_conditions.parameter.flatten()
+                y[: self.differential_state.shape[0]],
+                y[self.differential_state.shape[0] :],
+                yp[: self.dot.shape[0]],
+                self.initial_conditions.parameter.flatten(),
+            )
+            # breakpoint()
+
+        # TODO: some how pick linspace or logspace or pick one and
+        # let the solver deal with it
+        if self.state_count == 3:
+            tspan = np.logspace(-6, 6, 500)
+        elif self.state_count == 10:
+            tspan = np.linspace(0, 20, 100)
+
+        # algebraic_idx = [idx for idx in range(self.state_count) if idx == 1]
+        breakpoint()
+        if all(x == 0 for x in self.initial_state):
+            solver = ida.IDA(
+                residualfunction,
+                atol=1e-8,
+                algebraic_idx=list(
+                    range(self.state_count)[self.differential_state.shape[0] :]
+                ),
+                calc_initcond="y0",
+            )
+        elif all(x == 0 for x in self.initial_dot):
+            solver = ida.IDA(
+                residualfunction,
+                atol=1e-8,
+                algebraic_idx=list(
+                    range(self.state_count)[self.differential_state.shape[0] :]
+                ),
+                calc_initcond="yp0",
+            )
+        else:
+            solver = ida.IDA(
+                residualfunction,
+                atol=1e-8,
+                algebraic_idx=list(
+                    range(self.state_count)[self.differential_state.shape[0] :]
+                ),
             )
 
-        # TODO: only works for RobertsonProblem for now, will update such that
-        # it works fro any DAE system
-        tspan = np.logspace(-6, 6, 50)
-        solver = ida.IDA(residualfunction, atol=1e-8, algebraic_idx=[2])
         self.soln = solver.solve(tspan, self.initial_state, self.initial_dot)
-
+        breakpoint()
         self(model_instance)
 
-    # TODO: __call__ will return pysundae solution
+    # TODO: bind and wrap output for user to handle?
     def __call__(self, model_instance):
         soln = self.soln
         print(soln)
-        # model_instance._soln = soln
-        soln.y[:, 1] *= 1e4  # scale y1 values for plotting
-        plt.semilogx(soln.t, soln.y)
-        plt.legend(["y0", "y1", "y2"])
-        plt.xlabel("Time (s), $t$")
-        plt.ylabel("Concentration, $c$")
-        plt.show()
-        # breakpoint()
-        # breakpoint()
-        # print(soln)
-        # soln.y[:,1] *= 1e4 #scale y1 values for plotting
-        # plt.semilogx(soln.t, soln.y)
-        # plt.legend(["y0", "y1", "y2"])
-        # plt.xlabel("Time (s), $t$")
-        # plt.ylabel("Concentration, $c$")
+        if soln.y.shape[1] == 3:
+            soln.y[:, 1] *= 1e4  # scale y1 values for plotting
+            plt.semilogx(soln.t, soln.y)
+            plt.legend(["y0", "y1", "y2"])
+            plt.xlabel("Time (s), $t$")
+            plt.ylabel("Concentration, $c$")
+            plt.grid()
+            plt.show()
+        elif soln.y.shape[1] == 10:
+            x1 = soln.y[:, 0]
+            y1 = soln.y[:, 1]
+            x2 = soln.y[:, 2]
+            y2 = soln.y[:, 3]
+            plt.plot(x1, y1)
+            plt.plot(x2, y2)
+            plt.legend(["Mass 1", "Mass 2"])
+            plt.xlabel("x Position, $m$")
+            plt.ylabel("y Position, $m$")
+            plt.grid()
+            plt.scatter([0, x1[0], x2[0]], [0, y1[0], y2[0]])
+            plt.axis("equal")
+            plt.show()
+        else:
+            print("Not a Robertson or Double Pendulum problem.")
 
 
 # model type
@@ -166,8 +224,9 @@ class DAESystem(ModelTemplate, model_metaclass=DAESystemType):
 
     differential_state = FreeField(Direction.internal)
     algebraic_state = FreeField(Direction.internal)
-    initial_residual = FreeAssignedField(Direction.internal)
     dot = FreeMatchedField(differential_state)
+
+    initial_residual = FreeAssignedField(Direction.internal)
     output = AssignedField(Direction.output)
 
 
@@ -224,4 +283,81 @@ RobertsonProblem(
     reactant_dot_a_ic=-0.04,
     reactant_dot_b_ic=0.04,
     product_dot_ab_ic=0,
+)
+
+
+class DoublePendulumProblem(DAESystem):
+    L1_length_meter = parameter()
+    L2_length_meter = parameter()
+
+    g_const = parameter()
+
+    m1_mass_kg = parameter()
+    m2_mass_kg = parameter()
+
+    theta1 = parameter()
+    theta2 = parameter()
+
+    x1 = differential_state()
+    y1 = differential_state()
+    x2 = differential_state()
+    y2 = differential_state()
+    vx1 = differential_state()
+    vy1 = differential_state()
+    vx2 = differential_state()
+    vy2 = differential_state()
+    lam1 = algebraic_state()
+    lam2 = algebraic_state()
+
+    initial_residual(x1 == L1_length_meter * np.sin(theta1 * (pi / 180)))
+    initial_residual(y1 == -L1_length_meter * np.cos(theta1 * (pi / 180)))
+    initial_residual(x2 == x1 + L2_length_meter * np.sin(theta2 * (pi / 180)))
+    initial_residual(y2 == y1 - L2_length_meter * np.cos(theta2 * (pi / 180)))
+    initial_residual(vx1 == 0)
+    initial_residual(vy1 == 0)
+    initial_residual(vx2 == 0)
+    initial_residual(vy2 == 0)
+    initial_residual(lam1 == 0)
+    initial_residual(lam2 == 0)
+    initial_residual(dot[x1] == 0)
+    initial_residual(dot[y1] == 0)
+    initial_residual(dot[x2] == 0)
+    initial_residual(dot[y2] == 0)
+    initial_residual(dot[vx1] == 0)
+    initial_residual(dot[vy1] == 0)
+    initial_residual(dot[vx2] == 0)
+    initial_residual(dot[vy2] == 0)
+
+    residual(dot[x1] == vx1)
+    residual(dot[y1] == vy1)
+    residual(dot[x2] == vx2)
+    residual(dot[y2] == vy2)
+
+    residual(m1_mass_kg * dot[vx1] == 2 * lam1 * x1 - 2 * lam2 * (x2 - x1))
+    residual(
+        m1_mass_kg * dot[vy1]
+        == -m1_mass_kg * g_const + 2 * lam1 * y1 - 2 * lam2 * (y2 - y1)
+    )
+
+    residual(m2_mass_kg * dot[vx2] == 2 * lam2 * (x2 - x1))
+    residual(m2_mass_kg * dot[vy2] == -m2_mass_kg * g_const + 2 * lam2 * (y2 - y1))
+
+    residual(x1 * dot[vx1] + y1 * dot[vy1] + vx1**2 + vy1**2 == 0)
+    residual(
+        (x2 - x1) * (dot[vx2] - dot[vx1])
+        + (y2 - y1) * (dot[vy2] - dot[vy1])
+        + (vx2 - vx1) ** 2
+        + (vy2 - vy1) ** 2
+        == 0
+    )
+
+
+DoublePendulumProblem(
+    L1_length_meter=1.0,
+    L2_length_meter=1.0,
+    g_const=9.81,
+    m1_mass_kg=1.0,
+    m2_mass_kg=1.0,
+    theta1=45,
+    theta2=30,
 )
