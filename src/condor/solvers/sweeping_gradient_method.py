@@ -454,6 +454,8 @@ class SolverCVODE(SolverMixin):
             integration_direction = np.sign(next_t - last_t)
 
             # each iteration of this loop is one step until next event or time stop
+
+            # look at this loop to get time steps from solver
             while True:
                 solver_res = solver.step(next_t)
                 if solver_res.flag < 0:

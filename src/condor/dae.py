@@ -22,6 +22,7 @@ from condor.fields import (  # keep all fields?
     FreeField,
     FreeMatchedField,
 )
+from condor.implementations.utils import options_to_kwargs
 from condor.models import (  # keep these
     ModelTemplate,
     ModelType,
@@ -38,7 +39,7 @@ class DAEAnalysisImplementation:
             cse=True,
         )
         self.model = model_instance.__class__
-
+        self.options_dict = options_to_kwargs(self.model)
         self.p = self.model.parameter.flatten()
 
         self.differential_state = self.model.differential_state.flatten()
@@ -48,12 +49,14 @@ class DAEAnalysisImplementation:
         self.initial_residual = self.model.initial_residual.flatten()
         self.residual = self.model.residual.flatten()
         self.output = self.model.output.flatten()
-        breakpoint()
+        self.final_time = self.model.tf
+        self.start_time = self.model.t0
 
         self.state_count = (
             self.differential_state.shape[0] + self.algebraic_state.shape[0]
         )
         self.dot_count = self.dot.shape[0]
+        self.total_count = self.state_count + self.dot_count
         self.count_diff = self.state_count - self.dot_count
 
         # solve for the initial conditions from the initial residuals
@@ -80,36 +83,38 @@ class DAEAnalysisImplementation:
                     name=backend_name,
                     shape=elem.shape,
                 )
-
+            # create dot for the algebraic state?
+            # this would get rid of the append for ICs
             input_dict = residual_dict.as_("backend_repr")
-            for elem in self.model.initial_residual:
-                residual(substitute(elem.backend_repr, input_dict))
+            existing_vars = []
+            for index, elem in enumerate(self.model.initial_residual):
+                residual(
+                    substitute(elem.backend_repr, input_dict),
+                    name=f"residual_{index}",
+                )
+                try:
+                    existing_var = residual._elements[index].backend_repr.dep(0).name()
+                except RuntimeError:
+                    existing_var = residual._elements[index].backend_repr.dep(1).name()
+                existing_vars.append(existing_var)
+            breakpoint()
 
+            # algebraic states usually never have an initial condition
+            # (especially their derivative)
+            if len(residual) < len(variable):
+                residual_len = len(residual)
+                for _elem in variable:
+                    if _elem.backend_repr.name() in existing_vars:
+                        pass
+                    else:
+                        residual(
+                            _elem.backend_repr == 0, name=f"residual_{residual_len}"
+                        )
+                        residual_len += 1
             breakpoint()
 
         self.initial_conditions = DAEInitialConditionSolve(**model_instance.parameter)
-        breakpoint()
-
-        # create 2 vectors that have ICs for the states and dots
-        self.initial_state = []
-        self.initial_dot = []
-
-        for elem in self.model.differential_state:
-            self.initial_state.append(
-                self.initial_conditions.variable[elem.name].item()
-            )
-            dot_name = f"{elem.name}_dot"
-            self.initial_dot.append(self.initial_conditions.variable[dot_name].item())
-        for elem in self.model.algebraic_state:
-            self.initial_state.append(
-                self.initial_conditions.variable[elem.name].item()
-            )
-
-        if len(self.initial_state) < len(self.initial_dot):
-            self.initial_state.extend([0] * self.count_diff)
-        elif len(self.initial_state) > len(self.initial_dot):
-            self.initial_dot.extend([0] * self.count_diff)
-
+        # breakpoint()
         self.residual_vars = [
             self.differential_state,
             self.algebraic_state,
@@ -121,85 +126,139 @@ class DAEAnalysisImplementation:
             self.residual,
             f"{self.model.__name__}_residual",
         )
-        breakpoint()
 
+        self.dae_analysis_soln = DAEAnalysis(
+            initial_conditions=self.initial_conditions,
+            final_time=self.final_time,
+            start_time=self.start_time,
+            state_count=self.state_count,
+            dot_count=self.dot_count,
+            count_diff=self.count_diff,
+            residual_func=self.residual_func,
+            **self.options_dict,
+        )
+
+        self(model_instance)
+
+    def __call__(self, model_instance):
+        soln = self.dae_analysis_soln()
+        print(soln)
+
+        differential_state_soln = np.stack(
+            [soln.y[:, x] for x in range(self.dot_count)]
+        )
+        algebraic_state_soln = np.stack(
+            [soln.y[:, x] for x in range(self.dot_count, self.state_count)]
+        )
+        # should we bind the dot of algebraic states? are they interesting to look at?
+        dot_soln = np.stack([soln.yp[:, x] for x in range(self.dot_count)])
+
+        model_instance.t = soln.t
+        model_instance.bind_field(
+            model_instance.__class__.differential_state.wrap(differential_state_soln)
+        )
+        model_instance.bind_field(
+            model_instance.__class__.algebraic_state.wrap(algebraic_state_soln)
+        )
+        model_instance.bind_field(model_instance.__class__.dot.wrap(dot_soln))
+
+
+class DAEAnalysis:
+    # moving towards wrapping pysundae, might need something like class System
+    def __init__(
+        self,
+        initial_conditions,
+        final_time,
+        start_time,
+        state_count,
+        dot_count,
+        count_diff,
+        residual_func,
+        **analysis_options,
+    ):
+        self.state_count = state_count
+        self.dot_count = dot_count
+        self.residual_func = residual_func
+        self.initial_conditions = initial_conditions
+
+        self.initial_state = initial_conditions.variable.flatten()[:state_count]
+        self.initial_dot = initial_conditions.variable.flatten()[state_count:]
+        breakpoint()
+        # i feel like this will eventually throw an error (think it over, maybe not?)
+
+        # dae folder -> model templates, model types, implementations (possibly),
+        # solvers.py (has this DAEAnalysis) building towards the wrapper,
+        # sub model templates for events (similar to class Event())
+        # instead of update something like reinitialize residual
+        # think about API for shared residual
+
+        if len(self.initial_state) < len(self.initial_dot):
+            self.initial_state = np.append(self.initial_state, [0] * count_diff)
+        elif len(self.initial_state) > len(self.initial_dot):
+            self.initial_dot = np.append(self.initial_dot, [0] * count_diff)
+
+        # probably could add like in trajectory analysis to take out the key and value
+        num_steps = analysis_options.pop("num_steps")
+
+        if "linspace" in analysis_options and analysis_options.pop("linspace"):
+            linspace = True
+        elif "logspace" in analysis_options and analysis_options.pop("logspace"):
+            logspace = True
+            linspace = False
+        else:
+            linspace = True  # default
+        # i feel like i can combine these
+        if linspace:
+            self.tspan = np.linspace(start_time, final_time, num_steps)
+        elif logspace:
+            if start_time == 0 and final_time > 100:
+                self.tspan = np.logspace(-6, np.log10(final_time), num_steps)
+            else:
+                self.tspan = np.logspace(start_time, final_time, num_steps)
+
+    # look at trajectoryAnalysis for options and pulling out t0, tf for tspan
+    # ignore events stuff for now
+
+    # Plan Outline/Task List:
+    # DAEAnalysis -> TrajectoryAnalysis (look like) (DID?)
+    # use options to set num steps between t0 and tf for tspan,
+    # also flag to lin or logspace (DID?)
+    # Solver look like sgm_solver -> so it can handle time updates for event handling
+    # event stuff
+    # sgm for DAEs
+
+    def __call__(self):
         def residualfunction(t, y, yp, res):
             res[:, None] = self.residual_func(
-                y[: self.differential_state.shape[0]],
-                y[self.differential_state.shape[0] :],
-                yp[: self.dot.shape[0]],
+                y[: self.dot_count],
+                y[self.dot_count :],
+                yp[: self.dot_count],
                 self.initial_conditions.parameter.flatten(),
             )
-            # breakpoint()
 
-        # TODO: some how pick linspace or logspace or pick one and
-        # let the solver deal with it
-        if self.state_count == 3:
-            tspan = np.logspace(-6, 6, 500)
-        elif self.state_count == 10:
-            tspan = np.linspace(0, 20, 100)
-
-        # algebraic_idx = [idx for idx in range(self.state_count) if idx == 1]
-        breakpoint()
         if all(x == 0 for x in self.initial_state):
             solver = ida.IDA(
                 residualfunction,
                 atol=1e-8,
-                algebraic_idx=list(
-                    range(self.state_count)[self.differential_state.shape[0] :]
-                ),
+                algebraic_idx=list(range(self.state_count)[self.dot_count :]),
                 calc_initcond="y0",
             )
         elif all(x == 0 for x in self.initial_dot):
             solver = ida.IDA(
                 residualfunction,
                 atol=1e-8,
-                algebraic_idx=list(
-                    range(self.state_count)[self.differential_state.shape[0] :]
-                ),
+                algebraic_idx=list(range(self.state_count)[self.dot_count :]),
                 calc_initcond="yp0",
             )
         else:
             solver = ida.IDA(
                 residualfunction,
                 atol=1e-8,
-                algebraic_idx=list(
-                    range(self.state_count)[self.differential_state.shape[0] :]
-                ),
+                algebraic_idx=list(range(self.state_count)[self.dot_count :]),
             )
 
-        self.soln = solver.solve(tspan, self.initial_state, self.initial_dot)
-        breakpoint()
-        self(model_instance)
-
-    # TODO: bind and wrap output for user to handle?
-    def __call__(self, model_instance):
-        soln = self.soln
-        print(soln)
-        if soln.y.shape[1] == 3:
-            soln.y[:, 1] *= 1e4  # scale y1 values for plotting
-            plt.semilogx(soln.t, soln.y)
-            plt.legend(["y0", "y1", "y2"])
-            plt.xlabel("Time (s), $t$")
-            plt.ylabel("Concentration, $c$")
-            plt.grid()
-            plt.show()
-        elif soln.y.shape[1] == 10:
-            x1 = soln.y[:, 0]
-            y1 = soln.y[:, 1]
-            x2 = soln.y[:, 2]
-            y2 = soln.y[:, 3]
-            plt.plot(x1, y1)
-            plt.plot(x2, y2)
-            plt.legend(["Mass 1", "Mass 2"])
-            plt.xlabel("x Position, $m$")
-            plt.ylabel("y Position, $m$")
-            plt.grid()
-            plt.scatter([0, x1[0], x2[0]], [0, y1[0], y2[0]])
-            plt.axis("equal")
-            plt.show()
-        else:
-            print("Not a Robertson or Double Pendulum problem.")
+        soln = solver.solve(self.tspan, self.initial_state, self.initial_dot)
+        return soln
 
 
 # model type
@@ -209,6 +268,8 @@ class DAESystemType(ModelType):
         super().process_placeholders(new_cls, attrs)
         for elem in new_cls.residual:
             process_relational_element(elem)
+
+        # do same for initial_residual (process_relational_element)
 
     implementation = DAEAnalysisImplementation
 
@@ -227,6 +288,7 @@ class DAESystem(ModelTemplate, model_metaclass=DAESystemType):
     dot = FreeMatchedField(differential_state)
 
     initial_residual = FreeAssignedField(Direction.internal)
+    # initial_residual = SharedField(Direction.internal)
     output = AssignedField(Direction.output)
 
 
@@ -238,8 +300,6 @@ class DAESystem(ModelTemplate, model_metaclass=DAESystemType):
 # submodel template for events
 # class DAEEvent(SubmodelTemplate, model_metaclass=DAEEventType, primary=DAESystem):
 
-# TODO: pysundae IDA requires a t0, tf, and an n amount of points
-
 
 # Robertson example
 class RobertsonProblem(DAESystem):
@@ -249,6 +309,8 @@ class RobertsonProblem(DAESystem):
     product_ab = algebraic_state()
     reactant_a = differential_state()
     reactant_b = differential_state()
+    t0 = 0
+    tf = 1000000.0
 
     reactant_a_ic = parameter()
     reactant_b_ic = parameter()
@@ -272,8 +334,12 @@ class RobertsonProblem(DAESystem):
     )
     residual(reactant_a + reactant_b + product_ab == 1)
 
+    class Options:
+        num_steps = 50
+        logspace = True
 
-RobertsonProblem(
+
+sim1 = RobertsonProblem(
     const1=0.04,
     const2=1e4,
     const3=3e7,
@@ -284,6 +350,16 @@ RobertsonProblem(
     reactant_dot_b_ic=0.04,
     product_dot_ab_ic=0,
 )
+
+sim1.differential_state.reactant_b *= 1e4
+plt.semilogx(sim1.t, sim1.differential_state.reactant_a)
+plt.semilogx(sim1.t, sim1.differential_state.reactant_b)
+plt.semilogx(sim1.t, sim1.algebraic_state.product_ab)
+plt.legend(["y0", "y1", "y2"])
+plt.ylabel("Concentration, $c$")
+plt.xlabel("Time, $t$")
+plt.grid()
+plt.show()
 
 
 class DoublePendulumProblem(DAESystem):
@@ -298,6 +374,9 @@ class DoublePendulumProblem(DAESystem):
     theta1 = parameter()
     theta2 = parameter()
 
+    t0 = 0
+    tf = 20
+
     x1 = differential_state()
     y1 = differential_state()
     x2 = differential_state()
@@ -309,24 +388,21 @@ class DoublePendulumProblem(DAESystem):
     lam1 = algebraic_state()
     lam2 = algebraic_state()
 
-    initial_residual(x1 == L1_length_meter * np.sin(theta1 * (pi / 180)))
+    initial_residual(L1_length_meter * np.sin(theta1 * (pi / 180)) == x1)
     initial_residual(y1 == -L1_length_meter * np.cos(theta1 * (pi / 180)))
+    # replace with x^2 + y^2 = L^2 and arctan = theta1
     initial_residual(x2 == x1 + L2_length_meter * np.sin(theta2 * (pi / 180)))
     initial_residual(y2 == y1 - L2_length_meter * np.cos(theta2 * (pi / 180)))
-    initial_residual(vx1 == 0)
-    initial_residual(vy1 == 0)
-    initial_residual(vx2 == 0)
-    initial_residual(vy2 == 0)
-    initial_residual(lam1 == 0)
-    initial_residual(lam2 == 0)
-    initial_residual(dot[x1] == 0)
-    initial_residual(dot[y1] == 0)
-    initial_residual(dot[x2] == 0)
-    initial_residual(dot[y2] == 0)
-    initial_residual(dot[vx1] == 0)
-    initial_residual(dot[vy1] == 0)
-    initial_residual(dot[vx2] == 0)
-    initial_residual(dot[vy2] == 0)
+    initial_residual(vy2 == 0.5)
+    initial_residual(vx2 == 0.5)
+    # helper function?
+    # TODO: fix initial residual stuff
+    # shared residual <- new fieldtype (straight from field?)
+    # __init__ list of fields it's copying to and
+    # __call__(*args, **kwargs) iterate through fields and calls them
+    # initial theta1 dot and theta2 dot
+
+    # something like class CombinedFieldResidual
 
     residual(dot[x1] == vx1)
     residual(dot[y1] == vy1)
@@ -351,13 +427,33 @@ class DoublePendulumProblem(DAESystem):
         == 0
     )
 
+    class Options:
+        num_steps = 100
+        linspace = True
 
-DoublePendulumProblem(
+
+sim2 = DoublePendulumProblem(
     L1_length_meter=1.0,
     L2_length_meter=1.0,
     g_const=9.81,
     m1_mass_kg=1.0,
     m2_mass_kg=1.0,
     theta1=45,
-    theta2=30,
+    theta2=45,
 )
+
+plt.plot(sim2.differential_state.x1, sim2.differential_state.y1)
+plt.plot(sim2.differential_state.x2, sim2.differential_state.y2)
+plt.legend(["Mass 1", "Mass 2"])
+plt.xlabel("x Position, $m$")
+plt.ylabel("y Position, $m$")
+plt.grid()
+plt.scatter(
+    [0, sim2.differential_state.x1[0], sim2.differential_state.x2[0]],
+    [0, sim2.differential_state.y1[0], sim2.differential_state.y2[0]],
+)
+plt.axis("equal")
+plt.show()
+breakpoint()
+
+# bouncing ball problem :)

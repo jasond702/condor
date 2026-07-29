@@ -1019,3 +1019,14 @@ class FreeMatchedField(MatchedField, element_class=MatchedElement):
             return self._elements[-1].backend_repr
         # otherwise return the symbol of the existing matching element
         return item.backend_repr
+
+
+# CombinedFieldResidual
+class SharedField(Field):
+    def __init__(self, *args, **kwargs):
+        breakpoint()
+        pass
+
+    def __call__(self, *args, **kwargs):
+        breakpoint()
+        pass
