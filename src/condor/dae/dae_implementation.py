@@ -1,0 +1,161 @@
+from condor.backend.operators import substitute, concat, inf
+from condor.utils import ElementMap
+
+from condor.backend import expression_to_operator
+from condor import AlgebraicSystem
+from condor.dae.solvers import DAEAnalysis, TimeGeneratorFromSlices, NextTimeFromSlice
+from condor.implementations.utils import options_to_kwargs
+import numpy as np
+
+
+class DAEAnalysisImplementation:
+    def __init__(self, model_instance):
+        self.extra_args = dict(
+            cse=True,
+        )
+        self.model = model_instance.__class__
+        self.options_dict = options_to_kwargs(self.model)
+        self.p = self.model.parameter.flatten()
+
+        self.differential_state = self.model.differential_state.flatten()
+        self.algebraic_state = self.model.algebraic_state.flatten()
+        self.dot = self.model.dot.flatten()
+
+        self.initial_residual = self.model.initial_residual.flatten()
+        self.residual = self.model.residual.flatten()
+        self.output = self.model.output.flatten()
+        self.final_time = self.model.tf
+        self.start_time = self.model.t0
+        breakpoint()
+        self.state_count = (
+            self.differential_state.shape[0] + self.algebraic_state.shape[0]
+        )
+        self.dot_count = self.dot.shape[0]
+        self.total_count = self.state_count + self.dot_count
+        self.count_diff = self.state_count - self.dot_count
+
+        # solve for the initial conditions from the initial residuals
+        class DAEInitialConditionSolve(AlgebraicSystem):
+            residual_dict = ElementMap()
+            for elem in self.model.parameter:
+                residual_dict[elem] = parameter(
+                    name=elem.name,
+                    shape=elem.shape,
+                )
+            for elem in self.model.differential_state:
+                residual_dict[elem] = variable(
+                    name=elem.name,
+                    shape=elem.shape,
+                    initializer=elem.initializer,
+                )
+            for elem in self.model.algebraic_state:
+                residual_dict[elem] = variable(
+                    name=elem.name,
+                    shape=elem.shape,
+                    initializer=elem.initializer,
+                )
+            for elem in self.model.dot:
+                backend_name = f"{elem.name}_dot"
+                residual_dict[elem] = variable(
+                    name=backend_name,
+                    shape=elem.shape,
+                    # initializer=elem.initializer, <- does this need an initializer?
+                )
+            # create dot for the algebraic state?
+            # this would get rid of the append for ICs
+            input_dict = residual_dict.as_("backend_repr")
+            existing_vars = []
+            for index, elem in enumerate(self.model.initial_residual):
+                residual(
+                    substitute(elem.backend_repr, input_dict),
+                    name=f"residual_{index}",
+                )
+            #     try:
+            #         existing_var = residual._elements[index].backend_repr.dep(0).name()
+            #     except RuntimeError:
+            #         existing_var = residual._elements[index].backend_repr.dep(1).name()
+            #     existing_vars.append(existing_var)
+            # breakpoint()
+
+            # algebraic states usually never have an initial condition
+            # (especially their derivative)
+            # if len(residual) < len(variable):
+            #     residual_len = len(residual)
+            #     for _elem in variable:
+            #         if _elem.backend_repr.name() in existing_vars:
+            #             pass
+            #         else:
+            #             residual(
+            #                 _elem.backend_repr == 0, name=f"residual_{residual_len}"
+            #             )
+            #             residual_len += 1
+            # breakpoint()
+
+        self.initial_conditions = DAEInitialConditionSolve(**model_instance.parameter)
+        # breakpoint()
+        self.residual_vars = [
+            self.differential_state,
+            self.algebraic_state,
+            self.dot,
+            self.p,
+        ]
+        self.residual_func = expression_to_operator(
+            self.residual_vars,
+            self.residual,
+            f"{self.model.__name__}_residual",
+        )
+        breakpoint()
+        if isinstance(self.model.t0, BaseElement):
+            t0 = self.model.t0.backend_repr
+        elif isinstance(model.t0, (backend.symbol_class, float, np.ndarray)):
+            t0 = self.model.t0
+        else:
+            unexpcted_t0 = "unexpected value for t0"
+            raise ValueError(unexpcted_t0)
+        at_time_slices = [
+            NextTimeFromSlice(
+                expression_to_operator(
+                    [self.p],
+                    # TODO in future allow t0 to occur at arbitrary times
+                    concat([t0, t0, inf]),
+                    f"{self.model.__name__}_at_times_t0",
+                )
+            )
+        ]
+        breakpoint()
+        self.dae_analysis_soln = DAEAnalysis(
+            initial_conditions=self.initial_conditions,
+            p=self.initial_conditions.parameter.flatten(),
+            final_time=self.final_time,
+            start_time=self.start_time,
+            state_count=self.state_count,
+            dot_count=self.dot_count,
+            count_diff=self.count_diff,
+            residual_func=self.residual_func,
+            time_generator=TimeGeneratorFromSlices(at_time_slices),
+            **self.options_dict,
+        )
+
+        self(model_instance)
+
+    def __call__(self, model_instance):
+        soln = self.dae_analysis_soln()
+        print(soln)
+
+        differential_state_soln = np.stack(
+            [soln.y[:, x] for x in range(self.dot_count)]
+        )
+        algebraic_state_soln = np.stack(
+            [soln.y[:, x] for x in range(self.dot_count, self.state_count)]
+        )
+        # should we bind the dot of algebraic states? are they interesting to look at?
+        dot_soln = np.stack([soln.yp[:, x] for x in range(self.dot_count)])
+
+        model_instance.t = soln.t
+        model_instance.bind_field(
+            model_instance.__class__.differential_state.wrap(differential_state_soln)
+        )
+        model_instance.bind_field(
+            model_instance.__class__.algebraic_state.wrap(algebraic_state_soln)
+        )
+        model_instance.bind_field(model_instance.__class__.dot.wrap(dot_soln))

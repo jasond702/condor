@@ -161,6 +161,7 @@ class TrajectoryAnalysis:
                 )
             )
         ]
+        breakpoint()
 
         terminating = []
 
@@ -302,7 +303,7 @@ class TrajectoryAnalysis:
             )
         else:
             self.dynamic_output_func = None
-
+        breakpoint()
         self.state_system = sgm.System(
             dim_state=model.state._count,
             initial_state=self.state0,
@@ -322,13 +323,13 @@ class TrajectoryAnalysis:
         )
         self.state_system.model_instance = self.model_instance
         self.at_time_slices = at_time_slices
-
+        breakpoint()
         self.trajectory_analysis_nom = sgm.TrajectoryAnalysis(
             state_system=self.state_system,
             integrand_terms=self.traj_out_integrand_func,
             terminal_terms=self.traj_out_terminal_term_func,
         )
-
+        breakpoint()
         self.callback = FunctionOperator(
             function=self.trajectory_analysis_nom,
             get_jacobian_func=self.generate_sgm_jacobian if self.can_sgm else None,
@@ -337,6 +338,7 @@ class TrajectoryAnalysis:
             implementation=self,
             jacobian_of=None,
         )
+        breakpoint()
 
     def generate_sgm_jacobian(self, jacobian_of):
         state_equation_func = self.state_equation_func

@@ -325,17 +325,18 @@ class CasadiRootfinderWarmstart(CasadiWarmstartWrapperBase, CasadiFunctionCallba
         g1 = self.output_function(x, p)
 
         name = self.model_name
-
+        # breakpoint()
         self.rootfinder_f_arg = casadi.Function(
             f"{name}_rootfinder_f_arg", [x, p], [g0, g1]
         )
+        # breakpoint()
         self.rootfinder = casadi.rootfinder(
             f"{name}_rootfinder",
             self.method_string,
             self.rootfinder_f_arg,
             self.options,
         )
-
+        # breakpoint()
         if not self.init_var.jacobian()(self.p, []).nnz():
             sym_x0 = self.init_var(np.zeros(self.p.shape))
         else:

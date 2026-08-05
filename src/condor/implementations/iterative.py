@@ -118,7 +118,7 @@ class AlgebraicSystem(InitializerMixin):
         self.model = model
 
         InitializerMixin.construct(self, model)
-
+        # breakpoint()
         self.callback = CasadiRootfinderWarmstart(
             primary_function=self.residual_func,
             output_function=self.output_func,
@@ -681,9 +681,9 @@ class ScipyTrustConstr(ScipyMinimizeBase):
             scipy_constraints.append(
                 NonlinearConstraint(
                     fun=(
-                        lambda *args: self.g_func(*args, *extra_args)
-                        .toarray()
-                        .squeeze()
+                        lambda *args: (
+                            self.g_func(*args, *extra_args).toarray().squeeze()
+                        )
                     ),
                     jac=(lambda *args: self.g_jac_func(*args, *extra_args).sparse()),
                     lb=self.nonlinear_lb,

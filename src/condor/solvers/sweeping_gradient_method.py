@@ -198,9 +198,10 @@ class SolverSciPyBase(SolverMixin):
         system = self.system
         results = system.result
         last_x = system.initial_state()
-
+        breakpoint()
         time_generator = system.time_generator()
         last_t = next(time_generator)
+        breakpoint()
 
         # self.gs  will be used to monitor the event function
         self.gs = system.events(last_t, last_x)
@@ -247,7 +248,8 @@ class SolverSciPyBase(SolverMixin):
                 last_t,
             )
             self.integration_direction = np.sign(next_t - last_t)
-
+            print("hi")
+            # breakpoint()
             # each iteration of this loop is one step until next event or time stop
             while True:
                 solver.integrate(next_t)
@@ -320,7 +322,7 @@ class SolverSciPyBase(SolverMixin):
                     last_x,
                     last_t,
                 )
-
+                # breakpoint()
                 if (
                     (self.integration_direction * last_t)
                     >= (self.integration_direction * next_t)
@@ -341,6 +343,7 @@ class SolverSciPyBase(SolverMixin):
                     breakpoint()
 
             last_t = next_t
+            breakpoint()
 
 
 class SolverSciPyDopri5(SolverSciPyBase):
@@ -455,7 +458,9 @@ class SolverCVODE(SolverMixin):
 
             # each iteration of this loop is one step until next event or time stop
 
-            # look at this loop to get time steps from solver
+            # look at this loop to get time steps from solver -Jason
+            print("hi")
+            # breakpoint()
             while True:
                 solver_res = solver.step(next_t)
                 if solver_res.flag < 0:
@@ -550,6 +555,7 @@ class TimeGeneratorFromSlices:
     def __init__(self, time_slices, direction=1):
         self.time_slices = time_slices
         self.direction = direction
+        # breakpoint()
 
     def __call__(self, p):
         # TODO handle negative step?
@@ -564,6 +570,7 @@ class TimeGeneratorFromSlices:
             yield t
             if np.isinf(t):
                 breakpoint()
+        # breakpoint()
 
 
 class System:
@@ -592,7 +599,7 @@ class System:
         # to functions the sundials solvers call -- could be passed via the userdata
         # option but these functions need wrappers to handle returned values anyway
         self.result = None
-
+        # breakpoint()
         # these instance attributes encapsolate the business data of a system
 
         #   functions, see method wrapper for expected signature
@@ -616,19 +623,26 @@ class System:
         # itself? yes, basically just a sub-name space to the System which should own
         # the (parameterized) callables. Use wrapper method to define interface, then
         # AdjointSystem can re-implement wrapper method to change interface
+        # breakpoint()
         self._time_generator = time_generator
+        # breakpoint()
 
         # list of root indices that are terminating events...
         # any(rootsfound[terminating]) --> terminates simulation
         self.terminating = terminating
+        # breakpoint()
 
         self.dim_state = dim_state
+        # breakpoint()
         self.num_events = len(updates)
+        # breakpoint()
         self.make_solver(
             **solver_options,
         )
+        # breakpoint()
 
     def make_solver(self, solver_class, **solver_options):
+        breakpoint()
         self.system_solver = solver_class(  # SolverSciPy( #SolverCVODE(
             system=self,
             **solver_options,
@@ -658,13 +672,17 @@ class System:
         return np.array(next_x).squeeze()
 
     def time_generator(self):
+        # breakpoint()
         for t in self._time_generator(self.result.p):
+            breakpoint()
             yield np.array(t).reshape(-1)[0]
+        # breakpoint()
 
     def __call__(self, p):
         self.result = Result(p=p, system=self)
         self.system_solver.simulate()
         result = self.result
+        breakpoint()
         result.t = np.array(result.t)
         if self.dim_state == 1:
             result.x = [np.atleast_1d(x) for x in result.x]
@@ -686,6 +704,7 @@ class ResultBase:
     x: list[list] = field(default_factory=list)
     y: list[list] = field(default_factory=list)
     e: list[Root] = field(default_factory=list)
+    breakpoint()
 
     def __getitem__(self, key):
         return self.__class__(
