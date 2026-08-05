@@ -252,6 +252,7 @@ class SolverSciPyBase(SolverMixin):
             # breakpoint()
             # each iteration of this loop is one step until next event or time stop
             while True:
+                print("bye")
                 solver.integrate(next_t)
                 if not solver.successful():
                     results.e.append(Root(len(results.t), np.zeros(system.num_events)))
@@ -270,7 +271,7 @@ class SolverSciPyBase(SolverMixin):
                 #     and solver.t != next_t
                 # ):
                 #     breakpoint()
-
+                breakpoint()
                 if np.any(self.rootinfo):
                     rootsfound = self.rootinfo
 
@@ -469,7 +470,7 @@ class SolverCVODE(SolverMixin):
                 self.store_result(
                     np.copy(solver_res.values.t), np.copy(solver_res.values.y)
                 )
-
+                breakpoint()
                 if solver_res.flag == StatusEnum.ROOT_RETURN:
                     rootsfound = solver.rootinfo()
 
@@ -642,7 +643,7 @@ class System:
         # breakpoint()
 
     def make_solver(self, solver_class, **solver_options):
-        breakpoint()
+        # breakpoint()
         self.system_solver = solver_class(  # SolverSciPy( #SolverCVODE(
             system=self,
             **solver_options,

@@ -1,11 +1,12 @@
 from condor.backend.operators import substitute, concat, inf
 from condor.utils import ElementMap
 
-from condor.backend import expression_to_operator
+from condor.backend import expression_to_operator, symbol_class
 from condor import AlgebraicSystem
 from condor.dae.solvers import DAEAnalysis, TimeGeneratorFromSlices, NextTimeFromSlice
 from condor.implementations.utils import options_to_kwargs
 import numpy as np
+from condor.fields import BaseElement
 
 
 class DAEAnalysisImplementation:
@@ -107,7 +108,7 @@ class DAEAnalysisImplementation:
         breakpoint()
         if isinstance(self.model.t0, BaseElement):
             t0 = self.model.t0.backend_repr
-        elif isinstance(model.t0, (backend.symbol_class, float, np.ndarray)):
+        elif isinstance(self.model.t0, (symbol_class, int, float, np.ndarray)):
             t0 = self.model.t0
         else:
             unexpcted_t0 = "unexpected value for t0"
@@ -122,6 +123,25 @@ class DAEAnalysisImplementation:
                 )
             )
         ]
+
+        if isinstance(self.model.tf, BaseElement):
+            tf = self.model.tf.backend_repr
+        elif isinstance(self.model.tf, (symbol_class, int, float, np.ndarray)):
+            tf = self.model.tf
+        else:
+            unexpcted_tf = "unexpected value for tf"
+            raise ValueError(unexpcted_tf)
+        at_time_slices.append(
+            NextTimeFromSlice(
+                expression_to_operator(
+                    [self.p],
+                    # TODO in future allow t0 to occur at arbitrary times
+                    concat([tf, tf, inf]),
+                    f"{self.model.__name__}_at_times_tf",
+                )
+            )
+        )
+
         breakpoint()
         self.dae_analysis_soln = DAEAnalysis(
             initial_conditions=self.initial_conditions,

@@ -179,7 +179,7 @@ class TrajectoryAnalysis:
             ode_model.Event._meta.subclasses = ode_model.Event._meta.subclasses[:-1]
 
         num_events = len(events)
-
+        breakpoint()
         for event_idx, event in enumerate(events):
             if isnan(event.function) == isnan(event.at_time):
                 msg = f"Event class `{event}` has set both `function` and `at_time`"

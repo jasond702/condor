@@ -9,7 +9,8 @@ class SolverMixin:
         results = system.result
         results.t.append(store_t)
         results.y.append(store_y)
-        results.y.append(store_yp)
+        results.yp.append(store_yp)
+        # breakpoint()
         # if system.dynamic_output and store_y:
         #     results.y.append(
         #         np.array(system.dynamic_output(results.p, store_t, store_x)).reshape(-1)
@@ -34,10 +35,10 @@ class SundaeSolver(SolverMixin):
 
         time_generator = system.time_generator()
         last_t = next(time_generator)
-        breakpoint()
+
         # each iteration of this loop simulates until next generated time
         while True:
-            breakpoint()
+            # breakpoint()
             next_t = next(time_generator)
             if np.isinf(next_t):
                 break
@@ -50,8 +51,12 @@ class SundaeSolver(SolverMixin):
                     max_step_size=np.abs(next_t - last_t) / self.adaptive_min_steps
                 )
             """
-            self.system.solver.init_step(last_t, last_x, last_xp)
-            # breakpoint()
+            solver_res = self.system.solver.init_step(last_t, last_x, last_xp)
+            self.store_result(
+                np.copy(solver_res.t),
+                np.copy(solver_res.y),
+                np.copy(solver_res.yp),
+            )
 
             # solver.set_options(tstop=next_t)
             # integration_direction = np.sign(next_t - last_t)
@@ -61,15 +66,30 @@ class SundaeSolver(SolverMixin):
                 # solver_res = solver.init_step(
                 #     self.start_time, self.initial_state, self.initial_dot
                 # )
-
-                breakpoint()
-                solver_res = self.system.solver.step(next_t)
-                if solver_res.flag < 0:
-                    breakpoint()
+                # if next_t > system.final_time:
+                #     break
+                # breakpoint()
+                # breakpoint()
+                solver_res = self.system.solver.step(last_t + system.time_step)
+                # next_state = self.system.update()
+                # if solver_res.flag < 0:
+                #     breakpoint()
 
                 self.store_result(
-                    np.copy(solver_res.values.t), np.copy(solver_res.values.y)
+                    np.copy(solver_res.t),
+                    np.copy(solver_res.y),
+                    np.copy(solver_res.yp),
                 )
+                last_t = solver_res.t
+                if last_t + system.time_step >= system.final_time:
+                    solver_res = self.system.solver.step(system.final_time)
+                    self.store_result(
+                        np.copy(solver_res.t),
+                        np.copy(solver_res.y),
+                        np.copy(solver_res.yp),
+                    )
+                    break
+                # breakpoint()
                 """
                 if solver_res.flag == StatusEnum.ROOT_RETURN:
                     rootsfound = solver.rootinfo()
@@ -83,39 +103,39 @@ class SundaeSolver(SolverMixin):
                     min_e = np.abs(gs).min()
                     rootsfound = (gs == min_e).astype(int)
                 """
+                # print("hi")
+                # if solver_res.flag in (StatusEnum.TSTOP_RETURN, StatusEnum.ROOT_RETURN):
+                #     idx = len(results.t)
+                #     # results.e.append(Root(idx, rootsfound))
+                #     next_x = system.update(
+                #         results.t[-1],
+                #         results.x[-1],
+                #         rootsfound,
+                #     )
+                #     try:
+                #         terminate = np.any(rootsfound[system.terminating] != 0)
+                #     except Exception as e:
+                #         print("Hit exemption:")
+                #         print(e)
+                #         print("You may try to continue through or exit")
+                #         breakpoint()
+                #     self.store_result(np.copy(solver_res.values.t), next_x)
 
-                if solver_res.flag in (StatusEnum.TSTOP_RETURN, StatusEnum.ROOT_RETURN):
-                    idx = len(results.t)
-                    results.e.append(Root(idx, rootsfound))
-                    next_x = system.update(
-                        results.t[-1],
-                        results.x[-1],
-                        rootsfound,
-                    )
-                    try:
-                        terminate = np.any(rootsfound[system.terminating] != 0)
-                    except Exception as e:
-                        print("Hit exemption:")
-                        print(e)
-                        print("You may try to continue through or exit")
-                        breakpoint()
-                    self.store_result(np.copy(solver_res.values.t), next_x)
+                # if terminate:
+                #     self.store_result(np.copy(solver_res.values.t), next_x)
+                #     return
 
-                    if terminate:
-                        self.store_result(np.copy(solver_res.values.t), next_x)
-                        return
+                # solver.init_step(solver_res.values.t, next_x)
+                # last_x = next_x
 
-                    solver.init_step(solver_res.values.t, next_x)
-                    last_x = next_x
-
-                if (integration_direction * solver_res.values.t) >= (
-                    integration_direction * next_t
-                ):
-                    break
-                if solver_res.flag == StatusEnum.TSTOP_RETURN:
-                    # does occur on time_switch but not sp_lqr
-                    break
-            last_t = next_t
+                # if (integration_direction * solver_res.values.t) >= (
+                #     integration_direction * next_t
+                # ):
+                #     break
+                # if solver_res.flag == StatusEnum.TSTOP_RETURN:
+                #     # does occur on time_switch but not sp_lqr
+                #     break
+            # last_t = next_t
 
 
 class NextTimeFromSlice:
@@ -196,6 +216,9 @@ class DAEAnalysis:
         self.final_time = final_time
         self.result = None
         self._time_generator = time_generator
+        self.time_step = (final_time - start_time) / (
+            analysis_options.pop("num_steps") - 1
+        )
 
         self.initial_state = initial_conditions.variable.flatten()[:state_count]
         self.initial_dot = initial_conditions.variable.flatten()[state_count:]
@@ -269,15 +292,19 @@ class DAEAnalysis:
         self.system_solver = SundaeSolver(system=self)
 
     def time_generator(self):
-        breakpoint()
+        # breakpoint()
         for t in self._time_generator(self.result.p):
-            breakpoint()
+            # breakpoint()
             yield np.array(t).reshape(-1)[0]
 
     def __call__(self):
         self.result = DAEResult(p=self.p, system=self)  # initialize the results?
         self.system_solver.simulate()
         result = self.result
+        result.t = np.array(result.t)
+        result.y = np.array(result.y)
+        result.yp = np.array(result.yp)
+        return result
         breakpoint()
 
         # soln = solver.solve(self.tspan, self.initial_state, self.initial_dot)
