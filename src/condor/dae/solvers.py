@@ -147,39 +147,6 @@ class SundaeSolver(SolverMixin):
             # last_t = next_t
 
 
-# sundialsTestEquation and Sundials4PySolver are tested specifically for double pendulum
-
-
-class sundialsTestEquation:
-    def __init__(self, p, dot_count, initial_conditions, residual_func):
-        self.p = np.array(p, dtype=sun4py.core.sunrealtype)
-        self.dot_count = dot_count
-        self.initial_conditions = initial_conditions
-        self.residual_func = residual_func
-        self.NEQ = 10
-
-    def set_init_cond(self, yvec, ypvec, y0, yp0):
-        y = N_VGetArrayPointer(yvec)
-        yp = N_VGetArrayPointer(ypvec)
-        for i, elem in enumerate(y0):
-            y[i] = y0[i]
-            yp[i] = yp0[i]
-        return 0
-
-    def residualfunction(self, t, yvec, ypvec, resvec, _):
-        y = N_VGetArrayPointer(yvec)
-        yp = N_VGetArrayPointer(ypvec)
-        res = N_VGetArrayPointer(resvec)
-        res[:, None] = self.residual_func(
-            y[: self.dot_count],
-            y[self.dot_count :],
-            yp[: self.dot_count],
-            self.initial_conditions.parameter.flatten(),
-        )
-        return 0
-        # breakpoint()
-
-
 class Sundials4PySolver(SolverMixin):
     def __init__(
         self,
@@ -191,10 +158,39 @@ class Sundials4PySolver(SolverMixin):
         self.atol = atol
         self.rtol = rtol
 
+    class SundialsDAESystem:
+        def __init__(
+            self, p, state_count, dot_count, initial_conditions, residual_func
+        ):
+            self.p = np.array(p, dtype=sun4py.core.sunrealtype)
+            self.dot_count = dot_count
+            self.initial_conditions = initial_conditions
+            self.residual_func = residual_func
+            self.NEQ = state_count
+
+        def set_init_cond(self, yvec, ypvec, y0, yp0):
+            y = N_VGetArrayPointer(yvec)
+            yp = N_VGetArrayPointer(ypvec)
+            for i, elem in enumerate(y0):
+                y[i] = y0[i]
+                yp[i] = yp0[i]
+            return 0
+
+        def residualfunction(self, t, yvec, ypvec, resvec, _):
+            y = N_VGetArrayPointer(yvec)
+            yp = N_VGetArrayPointer(ypvec)
+            res = N_VGetArrayPointer(resvec)
+            res[:, None] = self.residual_func(
+                y[: self.dot_count],
+                y[self.dot_count :],
+                yp[: self.dot_count],
+                self.initial_conditions.parameter.flatten(),
+            )
+            return 0
+
     def simulate(self):
         system = self.system
         results = system.result
-        breakpoint()
         last_x = system.initial_state
         last_xp = system.initial_dot
 
@@ -206,36 +202,36 @@ class Sundials4PySolver(SolverMixin):
         assert status == SUN_SUCCESS
 
         # Step 2: Set up the DAE problem
-        testProblem = sundialsTestEquation(
-            system.p, system.dot_count, system.initial_conditions, system.residual_func
+        dae_system = Sundials4PySolver.SundialsDAESystem(
+            system.p,
+            system.state_count,
+            system.dot_count,
+            system.initial_conditions,
+            system.residual_func,
         )
 
-        y = N_VNew_Serial(testProblem.NEQ, sunctx)
-        yp = N_VNew_Serial(testProblem.NEQ, sunctx)
+        y = N_VNew_Serial(dae_system.NEQ, sunctx)
+        yp = N_VNew_Serial(dae_system.NEQ, sunctx)
         assert y is not None
         assert yp is not None
 
-        testProblem.set_init_cond(y, yp, last_x, last_xp)
-        print(testProblem.set_init_cond(y, yp, last_x, last_xp))
-        # breakpoint()
+        dae_system.set_init_cond(y, yp, last_x, last_xp)
 
         # Step 3: Create and Initialize IDAS
         IDAS = idas.IDACreate(sunctx)
         assert IDAS is not None
 
-        status = idas.IDAInit(IDAS.get(), testProblem.residualfunction, 0.0, y, yp)
+        status = idas.IDAInit(IDAS.get(), dae_system.residualfunction, 0.0, y, yp)
         assert status == idas.IDA_SUCCESS
-        # breakpoint()
 
-        algidx = N_VNew_Serial(testProblem.NEQ, sunctx)
-        idx = N_VGetArrayPointer(algidx)
-        idx_list = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0]
-        for i in range(len(idx)):
-            idx[i] = idx_list[i]
-        # breakpoint()
+        # algidx = N_VNew_Serial(testProblem.NEQ, sunctx)
+        # idx = N_VGetArrayPointer(algidx)
+        # idx_list = np.ones(system.state_count)
+        # idx_list[-(system.state_count - system.dot_count) :] = 0.0
+        # idx[:] = idx_list
 
-        status = idas.IDASetId(IDAS.get(), algidx)
-        assert status == idas.IDA_SUCCESS
+        # status = idas.IDASetId(IDAS.get(), algidx)
+        # assert status == idas.IDA_SUCCESS
 
         # Step 4: Set IDAS options (tolerances, linear solver, etc.)
         reltol = self.rtol
@@ -243,7 +239,7 @@ class Sundials4PySolver(SolverMixin):
         status = idas.IDASStolerances(IDAS.get(), reltol, abstol)
         assert status == idas.IDA_SUCCESS
 
-        A = sun4py.core.SUNDenseMatrix(testProblem.NEQ, testProblem.NEQ, sunctx)
+        A = sun4py.core.SUNDenseMatrix(dae_system.NEQ, dae_system.NEQ, sunctx)
         assert A is not None
 
         LS = sun4py.core.SUNLinSol_Dense(y, A, sunctx)
@@ -251,7 +247,6 @@ class Sundials4PySolver(SolverMixin):
 
         status = idas.IDASetLinearSolver(IDAS.get(), LS, A)
         assert status == idas.IDA_SUCCESS
-        # breakpoint()
 
         # Optional to set Jacobian
 
@@ -260,19 +255,23 @@ class Sundials4PySolver(SolverMixin):
         yarr = N_VGetArrayPointer(y)
         yparr = N_VGetArrayPointer(yp)
 
-        # print(f"  {tret:10.6f}  {yarr[0]:10.6f}  {yparr[0]:10.6f}")
         t_vals = [tret]
         y_vals = [yarr]
         yp_vals = [yparr]
+        self.store_result(
+            np.copy(tret),
+            np.copy(yarr),
+            np.copy(yparr),
+        )
 
-        status = idas.IDACalcIC(IDAS.get(), idas.IDA_YA_YDP_INIT, 1e-8)
-        assert status == idas.IDA_SUCCESS
+        # status = idas.IDACalcIC(IDAS.get(), idas.IDA_YA_YDP_INIT, 1e-2)
+        # status = idas.IDACalcIC(IDAS.get(), idas.IDA_Y_INIT, 1e-2)
+        # assert status == idas.IDA_SUCCESS
 
         while tret < system.final_time:
             status, tret = idas.IDASolve(
                 IDAS.get(),
-                # tret + system.time_step,
-                tret + 0.05,
+                tret + system.time_step,
                 y,
                 yp,
                 idas.IDA_NORMAL,
@@ -284,10 +283,6 @@ class Sundials4PySolver(SolverMixin):
                 np.copy(yarr),
                 np.copy(yparr),
             )
-            # t_vals.append(tret)
-            # y_vals.append(yarr)
-            # yp_vals.append(yparr)
-            # breakpoint()
 
         # Step 6: Get IDAS Statistics (optional)
 
@@ -377,7 +372,6 @@ class DAEAnalysis:
         self.initial_state = initial_conditions.variable.flatten()[:state_count]
         self.initial_dot = initial_conditions.variable.flatten()[state_count:]
 
-        breakpoint()
         # i feel like this will eventually throw an error (think it over, maybe not?)
 
         # sub model templates for events (similar to class Event())
@@ -388,25 +382,6 @@ class DAEAnalysis:
             self.initial_state = np.append(self.initial_state, [0] * count_diff)
         elif len(self.initial_state) > len(self.initial_dot):
             self.initial_dot = np.append(self.initial_dot, [0] * count_diff)
-
-        # probably could add like in trajectory analysis to take out the key and value
-        # num_steps = analysis_options.pop("num_steps")
-
-        # if "linspace" in analysis_options and analysis_options.pop("linspace"):
-        #     linspace = True
-        # elif "logspace" in analysis_options and analysis_options.pop("logspace"):
-        #     logspace = True
-        #     linspace = False
-        # else:
-        #     linspace = True  # default
-        # # i feel like i can combine these
-        # if linspace:
-        #     self.tspan = np.linspace(start_time, final_time, num_steps)
-        # elif logspace:
-        #     if start_time == 0 and final_time > 100:
-        #         self.tspan = np.logspace(-6, np.log10(final_time), num_steps)
-        #     else:
-        #         self.tspan = np.logspace(start_time, final_time, num_steps)
 
         def residualfunction(t, y, yp, res):
             res[:, None] = self.residual_func(
@@ -447,9 +422,7 @@ class DAEAnalysis:
         self.system_solver = Sundials4PySolver(system=self)
 
     def time_generator(self):
-        # breakpoint()
         for t in self._time_generator(self.result.p):
-            # breakpoint()
             yield np.array(t).reshape(-1)[0]
 
     def __call__(self):
@@ -460,10 +433,6 @@ class DAEAnalysis:
         result.y = np.array(result.y)
         result.yp = np.array(result.yp)
         return result
-        breakpoint()
-
-        # soln = solver.solve(self.tspan, self.initial_state, self.initial_dot)
-        # return soln
 
 
 @dataclass

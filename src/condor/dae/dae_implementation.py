@@ -25,9 +25,10 @@ class DAEAnalysisImplementation:
         self.initial_residual = self.model.initial_residual.flatten()
         self.residual = self.model.residual.flatten()
         self.output = self.model.output.flatten()
+
         self.final_time = self.model.tf
         self.start_time = self.model.t0
-        breakpoint()
+
         self.state_count = (
             self.differential_state.shape[0] + self.algebraic_state.shape[0]
         )
@@ -65,35 +66,14 @@ class DAEAnalysisImplementation:
             # create dot for the algebraic state?
             # this would get rid of the append for ICs
             input_dict = residual_dict.as_("backend_repr")
-            existing_vars = []
             for index, elem in enumerate(self.model.initial_residual):
                 residual(
                     substitute(elem.backend_repr, input_dict),
                     name=f"residual_{index}",
                 )
-            #     try:
-            #         existing_var = residual._elements[index].backend_repr.dep(0).name()
-            #     except RuntimeError:
-            #         existing_var = residual._elements[index].backend_repr.dep(1).name()
-            #     existing_vars.append(existing_var)
-            # breakpoint()
-
-            # algebraic states usually never have an initial condition
-            # (especially their derivative)
-            # if len(residual) < len(variable):
-            #     residual_len = len(residual)
-            #     for _elem in variable:
-            #         if _elem.backend_repr.name() in existing_vars:
-            #             pass
-            #         else:
-            #             residual(
-            #                 _elem.backend_repr == 0, name=f"residual_{residual_len}"
-            #             )
-            #             residual_len += 1
-            # breakpoint()
 
         self.initial_conditions = DAEInitialConditionSolve(**model_instance.parameter)
-        # breakpoint()
+
         self.residual_vars = [
             self.differential_state,
             self.algebraic_state,
@@ -142,7 +122,6 @@ class DAEAnalysisImplementation:
             )
         )
 
-        breakpoint()
         self.dae_analysis_soln = DAEAnalysis(
             initial_conditions=self.initial_conditions,
             p=self.initial_conditions.parameter.flatten(),
@@ -160,7 +139,6 @@ class DAEAnalysisImplementation:
 
     def __call__(self, model_instance):
         soln = self.dae_analysis_soln()
-        # print(soln)
 
         differential_state_soln = np.stack(
             [soln.y[:, x] for x in range(self.dot_count)]

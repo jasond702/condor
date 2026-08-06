@@ -36,20 +36,33 @@ class DoublePendulumProblem(DAESystem):
     initial_residual(x2 == x1 + L2_length_meter * np.sin(theta2 * (pi / 180)))
     initial_residual(y2 == y1 - L2_length_meter * np.cos(theta2 * (pi / 180)))
 
+    initial_residual(m1_mass_kg * dot[vx1] == 2 * lam1 * x1 - 2 * lam2 * (x2 - x1))
+    initial_residual(
+        m1_mass_kg * dot[vy1]
+        == -m1_mass_kg * g_const + 2 * lam1 * y1 - 2 * lam2 * (y2 - y1)
+    )
+    initial_residual(m2_mass_kg * dot[vx2] == 2 * lam2 * (x2 - x1))
+    initial_residual(
+        m2_mass_kg * dot[vy2] == -m2_mass_kg * g_const + 2 * lam2 * (y2 - y1)
+    )
+
+    initial_residual(x1 * dot[vx1] + y1 * dot[vy1] + vx1**2 + vy1**2 == 0)
+    initial_residual(
+        (x2 - x1) * (dot[vx2] - dot[vx1])
+        + (y2 - y1) * (dot[vy2] - dot[vy1])
+        + (vx2 - vx1) ** 2
+        + (vy2 - vy1) ** 2
+        == 0
+    )
+
     initial_residual(vx1 == 0)
     initial_residual(vy1 == 0)
     initial_residual(vx2 == 0)
     initial_residual(vy2 == 0)
-    initial_residual(lam1 == 0)
-    initial_residual(lam2 == 0)
     initial_residual(dot[x1] == 0)
     initial_residual(dot[y1] == 0)
     initial_residual(dot[x2] == 0)
     initial_residual(dot[y2] == 0)
-    initial_residual(dot[vx1] == 0)
-    initial_residual(dot[vy1] == 0)
-    initial_residual(dot[vx2] == 0)
-    initial_residual(dot[vy2] == 0)
 
     residual(dot[x1] == vx1)
     residual(dot[y1] == vy1)
@@ -85,8 +98,8 @@ sim2 = DoublePendulumProblem(
     g_const=9.81,
     m1_mass_kg=1.0,
     m2_mass_kg=1.0,
-    theta1=45,
-    theta2=30,
+    theta1=90,
+    theta2=90,
 )
 
 plt.plot(sim2.differential_state.x1, sim2.differential_state.y1)
@@ -95,7 +108,7 @@ plt.legend(["Mass 1", "Mass 2"])
 plt.xlabel("x Position, $m$")
 plt.ylabel("y Position, $m$")
 plt.grid()
-plt.title("Sundials4Py Plot, x vs. y")
+plt.title("x vs. y")
 plt.scatter(
     [0, sim2.differential_state.x1[0], sim2.differential_state.x2[0]],
     [0, sim2.differential_state.y1[0], sim2.differential_state.y2[0]],

@@ -40,20 +40,34 @@ class DoublePendulumProblem(DAESystem):
     # initial_residual(np.atan2((x2 - x1), -(y2 - y1)) == theta2 * (pi / 180))
     # atan and atan2 will work but the user has to figure out how to best represent it
 
+    initial_residual(m1_mass_kg * dot[vx1] == 2 * lam1 * x1 - 2 * lam2 * (x2 - x1))
+    initial_residual(
+        m1_mass_kg * dot[vy1]
+        == -m1_mass_kg * g_const + 2 * lam1 * y1 - 2 * lam2 * (y2 - y1)
+    )
+    initial_residual(m2_mass_kg * dot[vx2] == 2 * lam2 * (x2 - x1))
+    initial_residual(
+        m2_mass_kg * dot[vy2] == -m2_mass_kg * g_const + 2 * lam2 * (y2 - y1)
+    )
+
+    initial_residual(x1 * dot[vx1] + y1 * dot[vy1] + vx1**2 + vy1**2 == 0)
+    initial_residual(
+        (x2 - x1) * (dot[vx2] - dot[vx1])
+        + (y2 - y1) * (dot[vy2] - dot[vy1])
+        + (vx2 - vx1) ** 2
+        + (vy2 - vy1) ** 2
+        == 0
+    )
+
     initial_residual(vx1 == 0)
     initial_residual(vy1 == 0)
     initial_residual(vx2 == 0)
     initial_residual(vy2 == 0)
-    initial_residual(lam1 == 0)
-    initial_residual(lam2 == 0)
+
     initial_residual(dot[x1] == 0)
     initial_residual(dot[y1] == 0)
     initial_residual(dot[x2] == 0)
     initial_residual(dot[y2] == 0)
-    initial_residual(dot[vx1] == 0)
-    initial_residual(dot[vy1] == 0)
-    initial_residual(dot[vx2] == 0)
-    initial_residual(dot[vy2] == 0)
 
     residual(dot[x1] == vx1)
     residual(dot[y1] == vy1)

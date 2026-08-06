@@ -13,7 +13,7 @@ class RobertsonProblem(DAESystem):
     reactant_a = differential_state()
     reactant_b = differential_state()
     t0 = 0
-    tf = 1000000.0
+    tf = 10**6
 
     reactant_a_ic = parameter()
     reactant_b_ic = parameter()
