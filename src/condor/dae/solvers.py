@@ -1,4 +1,13 @@
 from sksundae import ida
+import sundials4py as sun4py
+from sundials4py import idas
+from sundials4py.core import (
+    SUNContext_Create,
+    SUN_COMM_NULL,
+    N_VNew_Serial,
+    N_VGetArrayPointer,
+    SUN_SUCCESS,
+)
 from dataclasses import dataclass, field
 import numpy as np
 
@@ -136,6 +145,151 @@ class SundaeSolver(SolverMixin):
                 #     # does occur on time_switch but not sp_lqr
                 #     break
             # last_t = next_t
+
+
+# sundialsTestEquation and Sundials4PySolver are tested specifically for double pendulum
+
+
+class sundialsTestEquation:
+    def __init__(self, p, dot_count, initial_conditions, residual_func):
+        self.p = np.array(p, dtype=sun4py.core.sunrealtype)
+        self.dot_count = dot_count
+        self.initial_conditions = initial_conditions
+        self.residual_func = residual_func
+        self.NEQ = 10
+
+    def set_init_cond(self, yvec, ypvec, y0, yp0):
+        y = N_VGetArrayPointer(yvec)
+        yp = N_VGetArrayPointer(ypvec)
+        for i, elem in enumerate(y0):
+            y[i] = y0[i]
+            yp[i] = yp0[i]
+        return 0
+
+    def residualfunction(self, t, yvec, ypvec, resvec, _):
+        y = N_VGetArrayPointer(yvec)
+        yp = N_VGetArrayPointer(ypvec)
+        res = N_VGetArrayPointer(resvec)
+        res[:, None] = self.residual_func(
+            y[: self.dot_count],
+            y[self.dot_count :],
+            yp[: self.dot_count],
+            self.initial_conditions.parameter.flatten(),
+        )
+        return 0
+        # breakpoint()
+
+
+class Sundials4PySolver(SolverMixin):
+    def __init__(
+        self,
+        system,
+        atol=1e-10,
+        rtol=1e-6,
+    ):
+        self.system = system
+        self.atol = atol
+        self.rtol = rtol
+
+    def simulate(self):
+        system = self.system
+        results = system.result
+        breakpoint()
+        last_x = system.initial_state
+        last_xp = system.initial_dot
+
+        time_generator = system.time_generator()
+        last_t = next(time_generator)
+
+        # Step 1: Create the SUNDIALS Context
+        status, sunctx = SUNContext_Create(SUN_COMM_NULL)
+        assert status == SUN_SUCCESS
+
+        # Step 2: Set up the DAE problem
+        testProblem = sundialsTestEquation(
+            system.p, system.dot_count, system.initial_conditions, system.residual_func
+        )
+
+        y = N_VNew_Serial(testProblem.NEQ, sunctx)
+        yp = N_VNew_Serial(testProblem.NEQ, sunctx)
+        assert y is not None
+        assert yp is not None
+
+        testProblem.set_init_cond(y, yp, last_x, last_xp)
+        print(testProblem.set_init_cond(y, yp, last_x, last_xp))
+        # breakpoint()
+
+        # Step 3: Create and Initialize IDAS
+        IDAS = idas.IDACreate(sunctx)
+        assert IDAS is not None
+
+        status = idas.IDAInit(IDAS.get(), testProblem.residualfunction, 0.0, y, yp)
+        assert status == idas.IDA_SUCCESS
+        # breakpoint()
+
+        algidx = N_VNew_Serial(testProblem.NEQ, sunctx)
+        idx = N_VGetArrayPointer(algidx)
+        idx_list = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0]
+        for i in range(len(idx)):
+            idx[i] = idx_list[i]
+        # breakpoint()
+
+        status = idas.IDASetId(IDAS.get(), algidx)
+        assert status == idas.IDA_SUCCESS
+
+        # Step 4: Set IDAS options (tolerances, linear solver, etc.)
+        reltol = self.rtol
+        abstol = self.atol
+        status = idas.IDASStolerances(IDAS.get(), reltol, abstol)
+        assert status == idas.IDA_SUCCESS
+
+        A = sun4py.core.SUNDenseMatrix(testProblem.NEQ, testProblem.NEQ, sunctx)
+        assert A is not None
+
+        LS = sun4py.core.SUNLinSol_Dense(y, A, sunctx)
+        assert LS is not None
+
+        status = idas.IDASetLinearSolver(IDAS.get(), LS, A)
+        assert status == idas.IDA_SUCCESS
+        # breakpoint()
+
+        # Optional to set Jacobian
+
+        # Step 5: Advance the DAE in time
+        tret = 0.0
+        yarr = N_VGetArrayPointer(y)
+        yparr = N_VGetArrayPointer(yp)
+
+        # print(f"  {tret:10.6f}  {yarr[0]:10.6f}  {yparr[0]:10.6f}")
+        t_vals = [tret]
+        y_vals = [yarr]
+        yp_vals = [yparr]
+
+        status = idas.IDACalcIC(IDAS.get(), idas.IDA_YA_YDP_INIT, 1e-8)
+        assert status == idas.IDA_SUCCESS
+
+        while tret < system.final_time:
+            status, tret = idas.IDASolve(
+                IDAS.get(),
+                # tret + system.time_step,
+                tret + 0.05,
+                y,
+                yp,
+                idas.IDA_NORMAL,
+            )
+            assert status == idas.IDA_SUCCESS
+
+            self.store_result(
+                np.copy(tret),
+                np.copy(yarr),
+                np.copy(yparr),
+            )
+            # t_vals.append(tret)
+            # y_vals.append(yarr)
+            # yp_vals.append(yparr)
+            # breakpoint()
+
+        # Step 6: Get IDAS Statistics (optional)
 
 
 class NextTimeFromSlice:
@@ -289,7 +443,8 @@ class DAEAnalysis:
         self.start_solver()
 
     def start_solver(self):
-        self.system_solver = SundaeSolver(system=self)
+        # self.system_solver = SundaeSolver(system=self)
+        self.system_solver = Sundials4PySolver(system=self)
 
     def time_generator(self):
         # breakpoint()

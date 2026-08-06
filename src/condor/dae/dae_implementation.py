@@ -105,7 +105,7 @@ class DAEAnalysisImplementation:
             self.residual,
             f"{self.model.__name__}_residual",
         )
-        breakpoint()
+
         if isinstance(self.model.t0, BaseElement):
             t0 = self.model.t0.backend_repr
         elif isinstance(self.model.t0, (symbol_class, int, float, np.ndarray)):
@@ -160,7 +160,7 @@ class DAEAnalysisImplementation:
 
     def __call__(self, model_instance):
         soln = self.dae_analysis_soln()
-        print(soln)
+        # print(soln)
 
         differential_state_soln = np.stack(
             [soln.y[:, x] for x in range(self.dot_count)]

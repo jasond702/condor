@@ -95,6 +95,7 @@ plt.legend(["Mass 1", "Mass 2"])
 plt.xlabel("x Position, $m$")
 plt.ylabel("y Position, $m$")
 plt.grid()
+plt.title("Sundials4Py Plot, x vs. y")
 plt.scatter(
     [0, sim2.differential_state.x1[0], sim2.differential_state.x2[0]],
     [0, sim2.differential_state.y1[0], sim2.differential_state.y2[0]],

@@ -705,7 +705,6 @@ class ResultBase:
     x: list[list] = field(default_factory=list)
     y: list[list] = field(default_factory=list)
     e: list[Root] = field(default_factory=list)
-    breakpoint()
 
     def __getitem__(self, key):
         return self.__class__(
