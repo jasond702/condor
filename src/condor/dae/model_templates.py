@@ -1,7 +1,4 @@
-from condor.models import (
-    ModelTemplate,
-    ModelType,
-)
+from condor.models import ModelTemplate, ModelType, SubmodelTemplate, SubmodelType
 from condor.fields import (
     AssignedField,
     Direction,
@@ -21,6 +18,8 @@ class DAESystemType(ModelType):
     def process_placeholders(cls, new_cls, attrs):
         super().process_placeholders(new_cls, attrs)
         for elem in new_cls.residual:
+            process_relational_element(elem)
+        for elem in new_cls.initial_residual:
             process_relational_element(elem)
 
         # do same for initial_residual (process_relational_element)
@@ -50,8 +49,42 @@ class DAESystem(ModelTemplate, model_metaclass=DAESystemType):
 
 # TODO: add subtemplate to handle events
 # submodel type for events
-# class DAEEventType(SubmodelType):
-# @classmethod
+
+
+# copied from class Event in contrib.py
+class DAEEventType(SubmodelType):
+    @classmethod
+    def process_condor_attr(cls, attr_name, attr_val, new_cls):
+        state_elem = new_cls._meta.primary.state.get(backend_repr=attr_val)
+        if state_elem != []:
+            primary_attr = getattr(new_cls._meta.primary, state_elem.name, None)
+            if primary_attr is None:
+                check_attr_name(state_elem.name, attr_val, new_cls._meta.primary)
+                setattr(new_cls._meta.primary, state_elem.name, state_elem)
+                new_cls._meta.primary._meta.user_set[state_elem.name] = attr_val
+            elif primary_attr is not state_elem:
+                msg = (
+                    f"{new_cls} attempting to assign state {attr_name} = {attr_val}"
+                    f" but {new_cls._meta.primary} already has {attr_name} ="
+                    f"{primary_attr}"
+                )
+                raise NameError(msg)
+            if state_elem.name != attr_name:
+                super().process_condor_attr(attr_name, attr_val, new_cls)
+        else:
+            super().process_condor_attr(attr_name, attr_val, new_cls)
+
 
 # submodel template for events
-# class DAEEvent(SubmodelTemplate, model_metaclass=DAEEventType, primary=DAESystem):
+
+
+# sub model templates for events (similar to class Event())
+# instead of update something like reinitialize residual
+# think about API for shared residual
+class DAEEvent(SubmodelTemplate, model_metaclass=DAEEventType, primary=DAESystem):
+    pass
+
+    # update =
+    terminate = placeholder(default=False)
+    function = placeholder(default=np.nan)
+    at_time = placeholder(default=np.nan)

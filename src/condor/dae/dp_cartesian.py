@@ -18,8 +18,7 @@ class DoublePendulumProblem(DAESystem):
     theta2 = parameter()
 
     t0 = 0
-    tf = 20
-
+    tf = 10
     x1 = differential_state(initializer=0.7)
     y1 = differential_state(initializer=-0.7)
     x2 = differential_state(initializer=1.2)
@@ -88,8 +87,9 @@ class DoublePendulumProblem(DAESystem):
     )
 
     class Options:
-        num_steps = 100
+        num_steps = 50
         linspace = True
+        # solver_kind =
 
 
 sim2 = DoublePendulumProblem(
@@ -98,8 +98,8 @@ sim2 = DoublePendulumProblem(
     g_const=9.81,
     m1_mass_kg=1.0,
     m2_mass_kg=1.0,
-    theta1=90,
-    theta2=90,
+    theta1=45,
+    theta2=30,
 )
 
 plt.plot(sim2.differential_state.x1, sim2.differential_state.y1)

@@ -26,6 +26,128 @@ class SolverMixin:
         #     )
 
 
+# Probably Sunset the solver :(
+class SundaeSolver(SolverMixin):
+    def __init__(
+        self,
+        system,
+        atol=1e-12,
+        rtol=1e-6,
+    ):
+        self.system = system
+
+    def simulate(self):
+        system = self.system
+        results = system.result
+
+        last_x = system.initial_state
+        last_xp = system.initial_dot
+
+        time_generator = system.time_generator()
+        last_t = next(time_generator)
+
+        # each iteration of this loop simulates until next generated time
+        while True:
+            # breakpoint()
+            next_t = next(time_generator)
+            if np.isinf(next_t):
+                break
+            if next_t < 0:
+                # breakpoint()
+                pass
+            """
+            if self.adaptive_min_steps:
+                solver.set_options(
+                    max_step_size=np.abs(next_t - last_t) / self.adaptive_min_steps
+                )
+            """
+            solver_res = self.system.solver.init_step(last_t, last_x, last_xp)
+            self.store_result(
+                np.copy(solver_res.t),
+                np.copy(solver_res.y),
+                np.copy(solver_res.yp),
+            )
+
+            # solver.set_options(tstop=next_t)
+            # integration_direction = np.sign(next_t - last_t)
+
+            # each iteration of this loop is one step until next event or time stop
+            while True:
+                # solver_res = solver.init_step(
+                #     self.start_time, self.initial_state, self.initial_dot
+                # )
+                # if next_t > system.final_time:
+                #     break
+                # breakpoint()
+                # breakpoint()
+                solver_res = self.system.solver.step(last_t + system.time_step)
+                # next_state = self.system.update()
+                # if solver_res.flag < 0:
+                #     breakpoint()
+
+                self.store_result(
+                    np.copy(solver_res.t),
+                    np.copy(solver_res.y),
+                    np.copy(solver_res.yp),
+                )
+                last_t = solver_res.t
+                if last_t + system.time_step >= system.final_time:
+                    solver_res = self.system.solver.step(system.final_time)
+                    self.store_result(
+                        np.copy(solver_res.t),
+                        np.copy(solver_res.y),
+                        np.copy(solver_res.yp),
+                    )
+                    break
+                # breakpoint()
+                """
+                if solver_res.flag == StatusEnum.ROOT_RETURN:
+                    rootsfound = solver.rootinfo()
+                """
+
+                """
+                if solver_res.flag == StatusEnum.TSTOP_RETURN:
+                    # assume this is associated with an event
+                    # does occur on time_switch but not sp_lqr
+                    gs = system.events(results.t[-1], results.x[-1])
+                    min_e = np.abs(gs).min()
+                    rootsfound = (gs == min_e).astype(int)
+                """
+                # print("hi")
+                # if solver_res.flag in (StatusEnum.TSTOP_RETURN, StatusEnum.ROOT_RETURN):
+                #     idx = len(results.t)
+                #     # results.e.append(Root(idx, rootsfound))
+                #     next_x = system.update(
+                #         results.t[-1],
+                #         results.x[-1],
+                #         rootsfound,
+                #     )
+                #     try:
+                #         terminate = np.any(rootsfound[system.terminating] != 0)
+                #     except Exception as e:
+                #         print("Hit exemption:")
+                #         print(e)
+                #         print("You may try to continue through or exit")
+                #         breakpoint()
+                #     self.store_result(np.copy(solver_res.values.t), next_x)
+
+                # if terminate:
+                #     self.store_result(np.copy(solver_res.values.t), next_x)
+                #     return
+
+                # solver.init_step(solver_res.values.t, next_x)
+                # last_x = next_x
+
+                # if (integration_direction * solver_res.values.t) >= (
+                #     integration_direction * next_t
+                # ):
+                #     break
+                # if solver_res.flag == StatusEnum.TSTOP_RETURN:
+                #     # does occur on time_switch but not sp_lqr
+                #     break
+            # last_t = next_t
+
+
 class Sundials4PySolver(SolverMixin):
     def __init__(
         self,
@@ -36,6 +158,36 @@ class Sundials4PySolver(SolverMixin):
         self.system = system
         self.atol = atol
         self.rtol = rtol
+
+    class SundialsDAESystem:
+        def __init__(
+            self, p, state_count, dot_count, initial_conditions, residual_func
+        ):
+            self.p = np.array(p, dtype=sun4py.core.sunrealtype)
+            self.dot_count = dot_count
+            self.initial_conditions = initial_conditions
+            self.residual_func = residual_func
+            self.NEQ = state_count
+
+        def set_init_cond(self, yvec, ypvec, y0, yp0):
+            y = N_VGetArrayPointer(yvec)
+            yp = N_VGetArrayPointer(ypvec)
+            for i, elem in enumerate(y0):
+                y[i] = y0[i]
+                yp[i] = yp0[i]
+            return 0
+
+        def residualfunction(self, t, yvec, ypvec, resvec, _):
+            y = N_VGetArrayPointer(yvec)
+            yp = N_VGetArrayPointer(ypvec)
+            res = N_VGetArrayPointer(resvec)
+            res[:, None] = self.residual_func(
+                y[: self.dot_count],
+                y[self.dot_count :],
+                yp[: self.dot_count],
+                self.initial_conditions.parameter.flatten(),
+            )
+            return 0
 
     def simulate(self):
         system = self.system
@@ -51,18 +203,26 @@ class Sundials4PySolver(SolverMixin):
         assert status == SUN_SUCCESS
 
         # Step 2: Set up the DAE problem
-        y = N_VNew_Serial(system.NEQ, sunctx)
-        yp = N_VNew_Serial(system.NEQ, sunctx)
+        dae_system = Sundials4PySolver.SundialsDAESystem(
+            system.p,
+            system.state_count,
+            system.dot_count,
+            system.initial_conditions,
+            system.residual_func,
+        )
+
+        y = N_VNew_Serial(dae_system.NEQ, sunctx)
+        yp = N_VNew_Serial(dae_system.NEQ, sunctx)
         assert y is not None
         assert yp is not None
 
-        system.set_init_cond(y, yp, last_x, last_xp)
+        dae_system.set_init_cond(y, yp, last_x, last_xp)
 
         # Step 3: Create and Initialize IDAS
         IDAS = idas.IDACreate(sunctx)
         assert IDAS is not None
 
-        status = idas.IDAInit(IDAS.get(), system.residualfunction, 0.0, y, yp)
+        status = idas.IDAInit(IDAS.get(), dae_system.residualfunction, 0.0, y, yp)
         assert status == idas.IDA_SUCCESS
 
         # algidx = N_VNew_Serial(testProblem.NEQ, sunctx)
@@ -80,7 +240,7 @@ class Sundials4PySolver(SolverMixin):
         status = idas.IDASStolerances(IDAS.get(), reltol, abstol)
         assert status == idas.IDA_SUCCESS
 
-        A = sun4py.core.SUNDenseMatrix(system.NEQ, system.NEQ, sunctx)
+        A = sun4py.core.SUNDenseMatrix(dae_system.NEQ, dae_system.NEQ, sunctx)
         assert A is not None
 
         LS = sun4py.core.SUNLinSol_Dense(y, A, sunctx)
@@ -198,10 +358,9 @@ class DAESystemAnalysis:
     ):
         self.state_count = state_count
         self.dot_count = dot_count
-        self.NEQ = state_count
         self.residual_func = residual_func
         self.initial_conditions = initial_conditions
-        self.p = np.array(p, dtype=sun4py.core.sunrealtype)
+        self.p = p
 
         self.start_time = start_time
         self.final_time = final_time
@@ -221,30 +380,45 @@ class DAESystemAnalysis:
         elif len(self.initial_state) > len(self.initial_dot):
             self.initial_dot = np.append(self.initial_dot, [0] * count_diff)
 
+        # this was all for pysundae
+
+        # def residualfunction(t, y, yp, res):
+        #     res[:, None] = self.residual_func(
+        #         y[: self.dot_count],
+        #         y[self.dot_count :],
+        #         yp[: self.dot_count],
+        #         self.initial_conditions.parameter.flatten(),
+        #     )
+
+        # if all(x == 0 for x in self.initial_state):
+        #     self.solver = ida.IDA(
+        #         residualfunction,
+        #         atol=1e-8,
+        #         algebraic_idx=list(range(self.state_count)[self.dot_count :]),
+        #         calc_initcond="y0",
+        #     )
+        #     breakpoint()
+        # elif all(x == 0 for x in self.initial_dot):
+        #     self.solver = ida.IDA(
+        #         residualfunction,
+        #         atol=1e-8,
+        #         algebraic_idx=list(range(self.state_count)[self.dot_count :]),
+        #         calc_initcond="yp0",
+        #     )
+        #     breakpoint()
+        # else:
+        #     self.solver = ida.IDA(
+        #         residualfunction,
+        #         atol=1e-8,
+        #         algebraic_idx=list(range(self.state_count)[self.dot_count :]),
+        #     )
+        #     breakpoint()
+
         self.start_solver()
 
     def start_solver(self):
+        # self.system_solver = SundaeSolver(system=self)
         self.system_solver = Sundials4PySolver(system=self)
-
-    def set_init_cond(self, yvec, ypvec, y0, yp0):
-        y = N_VGetArrayPointer(yvec)
-        yp = N_VGetArrayPointer(ypvec)
-        for i, elem in enumerate(y0):
-            y[i] = y0[i]
-            yp[i] = yp0[i]
-        return 0
-
-    def residualfunction(self, t, yvec, ypvec, resvec, _):
-        y = N_VGetArrayPointer(yvec)
-        yp = N_VGetArrayPointer(ypvec)
-        res = N_VGetArrayPointer(resvec)
-        res[:, None] = self.residual_func(
-            y[: self.dot_count],
-            y[self.dot_count :],
-            yp[: self.dot_count],
-            self.initial_conditions.parameter.flatten(),
-        )
-        return 0
 
     def time_generator(self):
         for t in self._time_generator(self.result.p):

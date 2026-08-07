@@ -3,7 +3,11 @@ from condor.utils import ElementMap
 
 from condor.backend import expression_to_operator, symbol_class
 from condor import AlgebraicSystem
-from condor.dae.solvers import DAEAnalysis, TimeGeneratorFromSlices, NextTimeFromSlice
+from condor.dae.solvers import (
+    DAESystemAnalysis,
+    TimeGeneratorFromSlices,
+    NextTimeFromSlice,
+)
 from condor.implementations.utils import options_to_kwargs
 import numpy as np
 from condor.fields import BaseElement
@@ -122,7 +126,7 @@ class DAEAnalysisImplementation:
             )
         )
 
-        self.dae_analysis_soln = DAEAnalysis(
+        self.dae_analysis_soln = DAESystemAnalysis(
             initial_conditions=self.initial_conditions,
             p=self.initial_conditions.parameter.flatten(),
             final_time=self.final_time,
@@ -140,11 +144,16 @@ class DAEAnalysisImplementation:
     def __call__(self, model_instance):
         soln = self.dae_analysis_soln()
 
+        if self.dot_count != self.state_count:
+            algebraic_state_soln = np.stack(
+                [soln.y[:, x] for x in range(self.dot_count, self.state_count)]
+            )
+            model_instance.bind_field(
+                model_instance.__class__.algebraic_state.wrap(algebraic_state_soln)
+            )
+
         differential_state_soln = np.stack(
             [soln.y[:, x] for x in range(self.dot_count)]
-        )
-        algebraic_state_soln = np.stack(
-            [soln.y[:, x] for x in range(self.dot_count, self.state_count)]
         )
         # should we bind the dot of algebraic states? are they interesting to look at?
         dot_soln = np.stack([soln.yp[:, x] for x in range(self.dot_count)])
@@ -152,8 +161,5 @@ class DAEAnalysisImplementation:
         model_instance.t = soln.t
         model_instance.bind_field(
             model_instance.__class__.differential_state.wrap(differential_state_soln)
-        )
-        model_instance.bind_field(
-            model_instance.__class__.algebraic_state.wrap(algebraic_state_soln)
         )
         model_instance.bind_field(model_instance.__class__.dot.wrap(dot_soln))
