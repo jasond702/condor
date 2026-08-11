@@ -1,15 +1,50 @@
 from condor.models import ModelTemplate, ModelType, SubmodelTemplate, SubmodelType
 from condor.fields import (
+    Field,
     AssignedField,
     Direction,
     FreeAssignedField,
     FreeField,
+    FreeElement,
     FreeMatchedField,
     InitializedField,
+    MatchedField,
+    pass_through,
+    asdict,
 )
 import numpy as np
 from condor.dae.dae_implementation import DAEAnalysisImplementation
-from condor.backend import process_relational_element
+from condor.backend import process_relational_element, get_symbol_data
+
+
+class DuplicatingFreeAssignedField(FreeAssignedField, element_class=FreeElement):
+    def __init__(self, direction=None, field_list=None, **kwargs):
+        # self.residual = args[0]
+        # self.initial_residual = args[1]
+        super().__init__(direction=direction, **kwargs)
+        self._field_list = field_list
+        self._init_kwargs.update(field_list=field_list)
+        # self.residual = kwargs.pop("residual")
+        # self.initial_residual = kwargs.pop("initial_residual")
+        # self.residual = residual
+        # self.initial_residual = initial_residual
+        # breakpoint()
+
+    def duplicate_residual(self):
+        return
+
+    def __call__(self, value, **kwargs):
+        # residual = FreeAssignedField(Direction.internal)
+        # symbol_data = get_symbol_data(value)
+        # breakpoint()
+        for field in self._field_list:
+            field(value)
+        # breakpoint()
+        return super().__call__(value, **kwargs)
+        # self.create_element(backend_repr=value, **kwargs, **asdict(symbol_data))
+        # residual.create_element(backend_repr=value, **kwargs, **asdict(symbol_data))
+        # breakpoint()
+        # return self._elements[-1].backend_repr
 
 
 # model type
@@ -22,8 +57,6 @@ class DAESystemType(ModelType):
         for elem in new_cls.initial_residual:
             process_relational_element(elem)
 
-        # do same for initial_residual (process_relational_element)
-
     implementation = DAEAnalysisImplementation
 
 
@@ -34,21 +67,17 @@ class DAESystem(ModelTemplate, model_metaclass=DAESystemType):
     tf = placeholder(default=np.inf)
 
     parameter = FreeField()
-    residual = FreeAssignedField(Direction.internal)
 
-    # differential_state = FreeField(Direction.internal)
-    differential_state = InitializedField(Direction.internal)
-    # algebraic_state = FreeField(Direction.internal)
-    algebraic_state = InitializedField(Direction.internal)
-    dot = FreeMatchedField(differential_state)
+    state = InitializedField(Direction.internal)
+    dot = FreeMatchedField(state)
 
     initial_residual = FreeAssignedField(Direction.internal)
-    # initial_residual = SharedField(Direction.internal)
+    residual = FreeAssignedField(Direction.internal)
+    shared_residual = DuplicatingFreeAssignedField(
+        Direction.internal, field_list=[residual, initial_residual]
+    )
+
     output = AssignedField(Direction.output)
-
-
-# TODO: add subtemplate to handle events
-# submodel type for events
 
 
 # copied from class Event in contrib.py
@@ -75,16 +104,15 @@ class DAEEventType(SubmodelType):
             super().process_condor_attr(attr_name, attr_val, new_cls)
 
 
-# submodel template for events
-
-
 # sub model templates for events (similar to class Event())
 # instead of update something like reinitialize residual
 # think about API for shared residual
 class DAEEvent(SubmodelTemplate, model_metaclass=DAEEventType, primary=DAESystem):
-    pass
-
-    # update =
+    update_residual = MatchedField(
+        DAESystem.initial_residual,
+        direction=Direction.output,
+        default_factory=pass_through,
+    )
     terminate = placeholder(default=False)
     function = placeholder(default=np.nan)
     at_time = placeholder(default=np.nan)

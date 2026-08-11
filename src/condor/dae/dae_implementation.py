@@ -22,8 +22,7 @@ class DAEAnalysisImplementation:
         self.options_dict = options_to_kwargs(self.model)
         self.p = self.model.parameter.flatten()
 
-        self.differential_state = self.model.differential_state.flatten()
-        self.algebraic_state = self.model.algebraic_state.flatten()
+        self.state = self.model.state.flatten()
         self.dot = self.model.dot.flatten()
 
         self.initial_residual = self.model.initial_residual.flatten()
@@ -33,12 +32,11 @@ class DAEAnalysisImplementation:
         self.final_time = self.model.tf
         self.start_time = self.model.t0
 
-        self.state_count = (
-            self.differential_state.shape[0] + self.algebraic_state.shape[0]
-        )
+        self.state_count = self.state.shape[0]
         self.dot_count = self.dot.shape[0]
         self.total_count = self.state_count + self.dot_count
         self.count_diff = self.state_count - self.dot_count
+        breakpoint()
 
         # solve for the initial conditions from the initial residuals
         class DAEInitialConditionSolve(AlgebraicSystem):
@@ -48,13 +46,7 @@ class DAEAnalysisImplementation:
                     name=elem.name,
                     shape=elem.shape,
                 )
-            for elem in self.model.differential_state:
-                residual_dict[elem] = variable(
-                    name=elem.name,
-                    shape=elem.shape,
-                    initializer=elem.initializer,
-                )
-            for elem in self.model.algebraic_state:
+            for elem in self.model.state:
                 residual_dict[elem] = variable(
                     name=elem.name,
                     shape=elem.shape,
@@ -67,10 +59,9 @@ class DAEAnalysisImplementation:
                     shape=elem.shape,
                     # initializer=elem.initializer, <- does this need an initializer?
                 )
-            # create dot for the algebraic state?
-            # this would get rid of the append for ICs
             input_dict = residual_dict.as_("backend_repr")
             for index, elem in enumerate(self.model.initial_residual):
+                # breakpoint()
                 residual(
                     substitute(elem.backend_repr, input_dict),
                     name=f"residual_{index}",
@@ -79,8 +70,7 @@ class DAEAnalysisImplementation:
         self.initial_conditions = DAEInitialConditionSolve(**model_instance.parameter)
 
         self.residual_vars = [
-            self.differential_state,
-            self.algebraic_state,
+            self.state,
             self.dot,
             self.p,
         ]
@@ -132,7 +122,6 @@ class DAEAnalysisImplementation:
             final_time=self.final_time,
             start_time=self.start_time,
             state_count=self.state_count,
-            dot_count=self.dot_count,
             count_diff=self.count_diff,
             residual_func=self.residual_func,
             time_generator=TimeGeneratorFromSlices(at_time_slices),
@@ -144,22 +133,9 @@ class DAEAnalysisImplementation:
     def __call__(self, model_instance):
         soln = self.dae_analysis_soln()
 
-        if self.dot_count != self.state_count:
-            algebraic_state_soln = np.stack(
-                [soln.y[:, x] for x in range(self.dot_count, self.state_count)]
-            )
-            model_instance.bind_field(
-                model_instance.__class__.algebraic_state.wrap(algebraic_state_soln)
-            )
-
-        differential_state_soln = np.stack(
-            [soln.y[:, x] for x in range(self.dot_count)]
-        )
-        # should we bind the dot of algebraic states? are they interesting to look at?
+        state_soln = np.stack([soln.y[:, x] for x in range(self.dot_count)])
         dot_soln = np.stack([soln.yp[:, x] for x in range(self.dot_count)])
 
         model_instance.t = soln.t
-        model_instance.bind_field(
-            model_instance.__class__.differential_state.wrap(differential_state_soln)
-        )
+        model_instance.bind_field(model_instance.__class__.state.wrap(state_soln))
         model_instance.bind_field(model_instance.__class__.dot.wrap(dot_soln))

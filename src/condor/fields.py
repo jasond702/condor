@@ -826,6 +826,8 @@ class AssignedField(Field, default_direction=Direction.output):
             # assigned with _ is to allow this check to work, bypassing the creation of
             # a new element. Is it actually sufficient to just if the value is a
             # symbol_class??
+            if value == "DAESystem.initial_residual":
+                breakpoint()
             super().__setattr__(name, value)
         else:
             # TODO: resolve circular imports so we can use dataclass
@@ -1021,12 +1023,55 @@ class FreeMatchedField(MatchedField, element_class=MatchedElement):
         return item.backend_repr
 
 
-# CombinedFieldResidual
-class SharedField(Field):
-    def __init__(self, *args, **kwargs):
-        breakpoint()
-        pass
+@dc.dataclass(repr=False)
+class SharedElement(BaseElement):
+    def __hash__(self):
+        return super().__hash__()
 
-    def __call__(self, *args, **kwargs):
+
+class DuplicatingFreeAssignedField(FreeAssignedField, element_class=FreeElement):
+    def __init__(self, direction=None, *args, **kwargs):
+        # self.residual = args[0]
+        # self.initial_residual = args[1]
+        super().__init__(direction=direction, **kwargs)
+        self.field_list = [
+            FreeField(),
+            InitializedField(Direction.internal),
+            FreeMatchedField(),
+        ]
+        # self.residual = kwargs.pop("residual")
+        # self.initial_residual = kwargs.pop("initial_residual")
+        # self.residual = residual
+        # self.initial_residual = initial_residual
         breakpoint()
-        pass
+
+    def duplicate_residual(self):
+        return
+
+    def __call__(self, value, **kwargs):
+        residual = FreeAssignedField(Direction.internal)
+        symbol_data = backend.get_symbol_data(value)
+        breakpoint()
+        self.create_element(backend_repr=value, **kwargs, **asdict(symbol_data))
+        residual.create_element(backend_repr=value, **kwargs, **asdict(symbol_data))
+        breakpoint()
+        return self._elements[-1].backend_repr, residual
+        # residual(value)
+        # initial_residual(value)
+
+    # helper function?
+    # TODO: fix initial residual stuff
+    # shared residual <- new fieldtype (straight from field?)
+    # __init__ list of fields it's copying to
+    # __call__(*args, **kwargs) iterate through fields and calls them
+    # initial theta1 dot and theta2 dot
+
+    # something like class CombinedFieldResidual
+
+    # def copy_field(self, new_model_name, old_field, new_field=None):
+    #     if new_field is None:
+    #         new_field = old_field.inherit(
+    #             new_model_name, field_type_name=old_field._name
+    #         )
+    #     new_field._elements = [sym for sym in old_field]
+    #     return new_field

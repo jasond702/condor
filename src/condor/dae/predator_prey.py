@@ -1,6 +1,6 @@
 """
 Typical Predator Prey problem. System of ODEs.
-Used to test if ODEs can be solved with DAE solver.
+Used to test if ODEs can be solved with DAE solver (IDAS).
 ODEs are just DAEs with no algebraic constraint.
 Update: Works! :)
 """

@@ -105,18 +105,20 @@ class Sundials4PySolver(SolverMixin):
             np.copy(yparr),
         )
 
+        # reproduce Robertson Events in SUNDIALS
+
         # status = idas.IDACalcIC(IDAS.get(), idas.IDA_YA_YDP_INIT, 1e-2)
         # status = idas.IDACalcIC(IDAS.get(), idas.IDA_Y_INIT, 1e-2)
         # assert status == idas.IDA_SUCCESS
-
+        # while
         while tret < system.final_time:
             status, tret = idas.IDASolve(
                 IDAS.get(),
                 tret + system.time_step,
                 y,
                 yp,
-                # idas.IDA_NORMAL,
-                idas.IDA_ONE_STEP,
+                idas.IDA_NORMAL,
+                # idas.IDA_ONE_STEP,
             )
             assert status == idas.IDA_SUCCESS
 
@@ -190,14 +192,12 @@ class DAESystemAnalysis:
         final_time,
         start_time,
         state_count,
-        dot_count,
         count_diff,
         residual_func,
         time_generator,
         **analysis_options,
     ):
         self.state_count = state_count
-        self.dot_count = dot_count
         self.NEQ = state_count
         self.residual_func = residual_func
         self.initial_conditions = initial_conditions
@@ -213,13 +213,6 @@ class DAESystemAnalysis:
 
         self.initial_state = initial_conditions.variable.flatten()[:state_count]
         self.initial_dot = initial_conditions.variable.flatten()[state_count:]
-
-        # i feel like this will eventually throw an error (think it over, maybe not?)
-
-        if len(self.initial_state) < len(self.initial_dot):
-            self.initial_state = np.append(self.initial_state, [0] * count_diff)
-        elif len(self.initial_state) > len(self.initial_dot):
-            self.initial_dot = np.append(self.initial_dot, [0] * count_diff)
 
         self.start_solver()
 
@@ -239,9 +232,8 @@ class DAESystemAnalysis:
         yp = N_VGetArrayPointer(ypvec)
         res = N_VGetArrayPointer(resvec)
         res[:, None] = self.residual_func(
-            y[: self.dot_count],
-            y[self.dot_count :],
-            yp[: self.dot_count],
+            y,
+            yp,
             self.initial_conditions.parameter.flatten(),
         )
         return 0

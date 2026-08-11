@@ -1,10 +1,8 @@
 """
-▼ ◄ ▲ ► ▼ ◄ ▲ ► ▼ ◄ ▲ ► ▼ ◄ ▲ ► ▼ ◄ ▲ ▼ ◄ ▲ ► ▼ ◄ ▲ ► ▼ ◄▼
-◄ ▲ ► ▼ ◄ ▲ ► ▼Sorry, I've dropped my bag of Doritos™ brand
-chips▲ ► ▼ ◄ ▲ ► ▼ ◄ ▲ ▼ ◄ ▲ ► ▼ ◄ ▲ ► ▼ ◄ ▲ ► ▼ ◄ ▲ ► ▼ ►
-▼ ◄ ◄ ▲▲ ► ▼ ◄▼ ◄ ◄ ▼ ◄ ▲ ► ▼ ◄ ▲ ► ▼ ◄ ▲ ► ▼ ◄ ▲ ►
-
 Future example problem, a bouncing ball problem! :)
+Tests DAE with events.
+Bouncing Ball acts like a DAESystem with no constraints (ODE)
+At event, it becomes a DAE. So in reality it is ODE -> DAE -> ODE
 """
 
 import matplotlib.pyplot as plt
@@ -15,13 +13,25 @@ from condor.backend.operators import pi
 
 
 class BouncingBallProblem(DAESystem):
-    mass_kg = parameter()
+    coeff = parameter()
     g_const = parameter()
 
-    lam = algebraic_state()
-    height = differential_state()
-    velocity = differential_state()
+    height = state()
+    velocity = state()
 
-    residual()
-    residual()
-    residual()
+    initial_residual(height == 5)
+    initial_residual(velocity == 0)
+
+    shared_residual(dot[velocity] == -g_const)
+    shared_residual(dot[height] == velocity)
+
+
+class Bounce(BouncingBallProblem.DAEEvent):
+    function = height
+    # update[velocity] == -coeff * velocity
+    update_residual(update[velocity] == -coeff * velocity)
+    update_residual(update[height] == height)
+    # automate this ^, pass through or non changing state
+
+
+sim = BouncingBallProblem(coeff=0.5, g_const=9.81)
