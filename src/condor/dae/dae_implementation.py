@@ -68,7 +68,7 @@ class DAEAnalysisImplementation:
                 )
 
         self.initial_conditions = DAEInitialConditionSolve(**model_instance.parameter)
-
+        breakpoint()
         self.residual_vars = [
             self.state,
             self.dot,

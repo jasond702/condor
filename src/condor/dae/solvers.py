@@ -7,6 +7,7 @@ from sundials4py.core import (
     N_VNew_Serial,
     N_VGetArrayPointer,
     SUN_SUCCESS,
+    sunrealtype,
 )
 from dataclasses import dataclass, field
 import numpy as np
@@ -62,22 +63,31 @@ class Sundials4PySolver(SolverMixin):
         IDAS = idas.IDACreate(sunctx)
         assert IDAS is not None
 
-        status = idas.IDAInit(IDAS.get(), system.residualfunction, 0.0, y, yp)
-        assert status == idas.IDA_SUCCESS
-
-        # algidx = N_VNew_Serial(testProblem.NEQ, sunctx)
-        # idx = N_VGetArrayPointer(algidx)
-        # idx_list = np.ones(system.state_count)
-        # idx_list[-(system.state_count - system.dot_count) :] = 0.0
-        # idx[:] = idx_list
-
-        # status = idas.IDASetId(IDAS.get(), algidx)
-        # assert status == idas.IDA_SUCCESS
+        if "logspace" in system.analysis_options:
+            status = idas.IDAInit(
+                IDAS.get(), system.residualfunction, 10**system.start_time, y, yp
+            )
+            assert status == idas.IDA_SUCCESS
+        else:
+            status = idas.IDAInit(
+                IDAS.get(), system.residualfunction, system.start_time, y, yp
+            )
+            assert status == idas.IDA_SUCCESS
 
         # Step 4: Set IDAS options (tolerances, linear solver, etc.)
         reltol = self.rtol
         abstol = self.atol
         status = idas.IDASStolerances(IDAS.get(), reltol, abstol)
+        assert status == idas.IDA_SUCCESS
+
+        # set up root functions (when do events occur)
+        status = idas.IDARootInit(IDAS.get(), 3, system.RobertsonEventsTEMP)
+        assert status == idas.IDA_SUCCESS
+
+        # status = idas.IDASetRootDirection(IDAS.get(), [0, 0, -1])
+        # assert status == idas.IDA_SUCCESS
+
+        status = idas.IDASetNoInactiveRootWarn(IDAS.get())
         assert status == idas.IDA_SUCCESS
 
         A = sun4py.core.SUNDenseMatrix(system.NEQ, system.NEQ, sunctx)
@@ -89,39 +99,65 @@ class Sundials4PySolver(SolverMixin):
         status = idas.IDASetLinearSolver(IDAS.get(), LS, A)
         assert status == idas.IDA_SUCCESS
 
+        NLS = sun4py.core.SUNNonlinSol_Newton(y, sunctx)
+        assert NLS is not None
+
+        status = idas.IDASetNonlinearSolver(IDAS.get(), NLS)
+        assert status == idas.IDA_SUCCESS
         # Optional to set Jacobian
 
         # Step 5: Advance the DAE in time
-        tret = 0.0
+        if "logspace" in system.analysis_options:
+            tret = 10**system.start_time
+        else:
+            tret = system.start_time
+
         yarr = N_VGetArrayPointer(y)
         yparr = N_VGetArrayPointer(yp)
 
         t_vals = [tret]
         y_vals = [yarr]
         yp_vals = [yparr]
+        # copy initial conditions into array
         self.store_result(
             np.copy(tret),
             np.copy(yarr),
             np.copy(yparr),
         )
-
+        # breakpoint()
         # reproduce Robertson Events in SUNDIALS
 
         # status = idas.IDACalcIC(IDAS.get(), idas.IDA_YA_YDP_INIT, 1e-2)
         # status = idas.IDACalcIC(IDAS.get(), idas.IDA_Y_INIT, 1e-2)
         # assert status == idas.IDA_SUCCESS
-        # while
+        # while True:
+        rootsfound = np.zeros(3)
         while tret < system.final_time:
-            status, tret = idas.IDASolve(
-                IDAS.get(),
-                tret + system.time_step,
-                y,
-                yp,
-                idas.IDA_NORMAL,
-                # idas.IDA_ONE_STEP,
-            )
-            assert status == idas.IDA_SUCCESS
+            if "logspace" in system.analysis_options:
+                status, tret = idas.IDASolve(
+                    IDAS.get(),
+                    10 ** (np.log10(tret) + system.time_step),
+                    y,
+                    yp,
+                    idas.IDA_NORMAL,
+                )
+                if status == idas.IDA_ROOT_RETURN:
+                    # breakpoint()
+                    status = idas.IDAGetRootInfo(IDAS.get(), rootsfound)
+                    assert status == idas.IDA_SUCCESS
+                    # printf("    rootsfound[] = %3d %3d\n", root_f1, root_f2)
+                assert status == idas.IDA_SUCCESS
+            else:
+                status, tret = idas.IDASolve(
+                    IDAS.get(),
+                    tret + system.time_step,
+                    y,
+                    yp,
+                    idas.IDA_NORMAL,
+                )
+                assert status == idas.IDA_SUCCESS
 
+            # breakpoint()
             self.store_result(
                 np.copy(tret),
                 np.copy(yarr),
@@ -199,17 +235,30 @@ class DAESystemAnalysis:
     ):
         self.state_count = state_count
         self.NEQ = state_count
+        self.analysis_options = analysis_options
         self.residual_func = residual_func
         self.initial_conditions = initial_conditions
-        self.p = np.array(p, dtype=sun4py.core.sunrealtype)
+        self.p = np.array(p, dtype=sunrealtype)
 
         self.start_time = start_time
         self.final_time = final_time
         self.result = None
         self._time_generator = time_generator
-        self.time_step = (final_time - start_time) / (
-            analysis_options.pop("num_steps") - 1
-        )
+        # self.time_step = (final_time - start_time) / (
+        #     analysis_options.pop("num_steps") - 1
+        # )
+        # TODO: i want to fix handling log vs lin space
+
+        if "logspace" in analysis_options:
+            if start_time == 0:
+                self.start_time = -6
+            self.time_step = (np.log10(final_time) - self.start_time) / (
+                analysis_options.pop("num_steps") - 1
+            )
+        else:
+            self.time_step = (final_time - self.start_time) / (
+                analysis_options.pop("num_steps") - 1
+            )
 
         self.initial_state = initial_conditions.variable.flatten()[:state_count]
         self.initial_dot = initial_conditions.variable.flatten()[state_count:]
@@ -236,6 +285,18 @@ class DAESystemAnalysis:
             yp,
             self.initial_conditions.parameter.flatten(),
         )
+        # breakpoint()
+        return 0
+
+    def RobertsonEventsTEMP(self, t, yvec, ypvec, evvec, _):
+        y = N_VGetArrayPointer(yvec)
+        yp = N_VGetArrayPointer(ypvec)
+        # evvec[0] = y[0] - 0.0001
+        # evvec[1] = y[2] - 0.01
+        # breakpoint()
+        evvec[0] = y[0] - 0.1
+        evvec[1] = y[1] * 1e4 - 0.2
+        evvec[2] = y[2] - 0.7
         return 0
 
     def time_generator(self):

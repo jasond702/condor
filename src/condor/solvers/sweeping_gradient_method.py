@@ -198,10 +198,10 @@ class SolverSciPyBase(SolverMixin):
         system = self.system
         results = system.result
         last_x = system.initial_state()
-        breakpoint()
+        # breakpoint()
         time_generator = system.time_generator()
         last_t = next(time_generator)
-        breakpoint()
+        # breakpoint()
 
         # self.gs  will be used to monitor the event function
         self.gs = system.events(last_t, last_x)

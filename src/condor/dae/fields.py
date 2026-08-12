@@ -1019,23 +1019,3 @@ class FreeMatchedField(MatchedField, element_class=MatchedElement):
             return self._elements[-1].backend_repr
         # otherwise return the symbol of the existing matching element
         return item.backend_repr
-
-
-# CombinedFieldResidual
-class SharedField(Field):
-    def __init__(self, *args, **kwargs):
-        breakpoint()
-        pass
-
-    def __call__(self, *args, **kwargs):
-        breakpoint()
-        pass
-
-    # helper function?
-    # TODO: fix initial residual stuff
-    # shared residual <- new fieldtype (straight from field?)
-    # __init__ list of fields it's copying to and
-    # __call__(*args, **kwargs) iterate through fields and calls them
-    # initial theta1 dot and theta2 dot
-
-    # something like class CombinedFieldResidual

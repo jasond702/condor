@@ -30,6 +30,7 @@ class Bounce(BouncingBallProblem.DAEEvent):
     function = height
     # update[velocity] == -coeff * velocity
     update_residual(update[velocity] == -coeff * velocity)
+    # coeff is 0 < coeff < 1
     update_residual(update[height] == height)
     # automate this ^, pass through or non changing state
 

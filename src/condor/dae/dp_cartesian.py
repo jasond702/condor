@@ -18,7 +18,7 @@ class DoublePendulumProblem(DAESystem):
     theta2 = parameter()
 
     t0 = 0
-    tf = 10
+    tf = 100
     x1 = state(initializer=0.7)
     y1 = state(initializer=-0.7)
     x2 = state(initializer=1.2)
@@ -66,7 +66,7 @@ class DoublePendulumProblem(DAESystem):
     )
 
     class Options:
-        num_steps = 100
+        num_steps = 20000
         linspace = True
         # solver_kind =
 
@@ -77,20 +77,20 @@ sim2 = DoublePendulumProblem(
     g_const=9.81,
     m1_mass_kg=1.0,
     m2_mass_kg=1.0,
-    theta1=45,
-    theta2=30,
+    theta1=90,
+    theta2=90,
 )
 
 plt.plot(sim2.state.x1, sim2.state.y1)
-plt.plot(sim2.state.x2, sim2.state.y2)
-plt.legend(["Mass 1", "Mass 2"])
+# plt.plot(sim2.state.x2, sim2.state.y2)
+# plt.legend(["Mass 1", "Mass 2"])
 plt.xlabel("x Position, $m$")
 plt.ylabel("y Position, $m$")
 plt.grid()
-plt.title("x vs. y")
-plt.scatter(
-    [0, sim2.state.x1[0], sim2.state.x2[0]],
-    [0, sim2.state.y1[0], sim2.state.y2[0]],
-)
+plt.title("x vs. y, Condor")
+# plt.scatter(
+#     [0, sim2.state.x1[0], sim2.state.x2[0]],
+#     [0, sim2.state.y1[0], sim2.state.y2[0]],
+# )
 plt.axis("equal")
 plt.show()
