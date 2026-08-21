@@ -19,32 +19,15 @@ from condor.backend import process_relational_element, get_symbol_data
 
 class DuplicatingFreeAssignedField(FreeAssignedField, element_class=FreeElement):
     def __init__(self, direction=None, field_list=None, **kwargs):
-        # self.residual = args[0]
-        # self.initial_residual = args[1]
         super().__init__(direction=direction, **kwargs)
         self._field_list = field_list
         self._init_kwargs.update(field_list=field_list)
-        # self.residual = kwargs.pop("residual")
-        # self.initial_residual = kwargs.pop("initial_residual")
-        # self.residual = residual
-        # self.initial_residual = initial_residual
-        # breakpoint()
-
-    def duplicate_residual(self):
-        return
 
     def __call__(self, value, **kwargs):
-        # residual = FreeAssignedField(Direction.internal)
-        # symbol_data = get_symbol_data(value)
-        # breakpoint()
         for field in self._field_list:
             field(value)
-        # breakpoint()
+
         return super().__call__(value, **kwargs)
-        # self.create_element(backend_repr=value, **kwargs, **asdict(symbol_data))
-        # residual.create_element(backend_repr=value, **kwargs, **asdict(symbol_data))
-        # breakpoint()
-        # return self._elements[-1].backend_repr
 
 
 # model type

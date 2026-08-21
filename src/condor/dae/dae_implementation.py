@@ -1,9 +1,9 @@
-from condor.backend.operators import substitute, concat, inf
+from condor.backend.operators import substitute, concat, inf  # , jacobian
 from condor.utils import ElementMap
 
 from condor.backend import expression_to_operator, symbol_class
 from condor import AlgebraicSystem
-from condor.dae.solvers import (
+from condor.dae.solvers_adjoint import (
     DAESystemAnalysis,
     TimeGeneratorFromSlices,
     NextTimeFromSlice,
@@ -11,6 +11,7 @@ from condor.dae.solvers import (
 from condor.implementations.utils import options_to_kwargs
 import numpy as np
 from condor.fields import BaseElement
+from casadi import MX, sum2, jacobian
 
 
 class DAEAnalysisImplementation:
@@ -68,7 +69,64 @@ class DAEAnalysisImplementation:
                 )
 
         self.initial_conditions = DAEInitialConditionSolve(**model_instance.parameter)
-        breakpoint()
+
+        # self.symbolic_initial_condition = DAEInitialConditionSolve(
+        #     **self.model.parameter
+        # )
+        # self._initial_condition_jacobian = jacobian(
+        #     self.symbolic_initial_condition.variable.flatten(), self.p
+        # )
+        # self.initial_condition_jacobian = substitute(
+        #     self._initial_condition_jacobian,
+        #     {self.state[0]: 1, self.state[1]: 0, self.state[2]: 0},
+        # )
+        # self.sensitivity_initial_conditions_func = expression_to_operator(
+        #     [self.p],
+        #     self.initial_condition_jacobian,
+        #     f"{self.model.__name__}_sensitivity_initial_condition",
+        # )
+
+        self.sens_state_initial_condition_func = expression_to_operator(
+            [self.p], jacobian(self.state, self.p)
+        )
+        self.sens_dot_initial_condition_func = expression_to_operator(
+            [self.state], jacobian(self.residual, self.p)
+        )
+        # for robertson it would be a 6x3
+        # it would be symbolic, could use expression to op or substitute
+
+        self.state_sensitivity = MX.sym(
+            "s", self.p.shape[0], self.state.shape[0]
+        )  # same shape as parameters * state (robertson would be 3x3)
+        # casadi MX symbols
+        self.dot_sensitivity = MX.sym("sd", 3, 3)
+        self.sensitivity_residual_state = (
+            jacobian(self.residual, self.state) @ self.state_sensitivity
+        )
+        self.sensitivity_residual_dot = (
+            jacobian(self.residual, self.dot) @ self.dot_sensitivity
+        )
+        self.sensitivity_residual_parameter = jacobian(self.residual, self.p)
+
+        self.sensitivity_residual = (
+            self.sensitivity_residual_state
+            + self.sensitivity_residual_dot
+            + self.sensitivity_residual_parameter
+        )
+
+        self.sensitivity_vars = [
+            self.state_sensitivity,
+            self.dot_sensitivity,
+            self.state,
+            self.dot,
+            self.p,
+        ]
+        self.sens_func = expression_to_operator(
+            self.sensitivity_vars,
+            self.sensitivity_residual,
+            f"{self.model.__name__}_sensitivity_residual",
+        )
+
         self.residual_vars = [
             self.state,
             self.dot,
@@ -124,6 +182,9 @@ class DAEAnalysisImplementation:
             state_count=self.state_count,
             count_diff=self.count_diff,
             residual_func=self.residual_func,
+            sens_func=self.sens_func,
+            sens_state_initial_condition_func=self.sens_state_initial_condition_func,
+            sens_dot_initial_condition_func=self.sens_dot_initial_condition_func,
             time_generator=TimeGeneratorFromSlices(at_time_slices),
             **self.options_dict,
         )

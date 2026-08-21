@@ -10,17 +10,21 @@ class RobertsonProblem(DAESystem):
     const2 = parameter()  # constant 2 = 10 x 10^4
     const3 = parameter()  # constant 3 = 3 x 10^7
 
-    reactant_a = state(initializer=1.0)  # y0
-    reactant_b = state(initializer=0)  # y1
-    product_ab = state(initializer=0)  # y2
+    reactant_a = state(initializer=0.9)
+    reactant_b = state(initializer=0)
+    product_ab = state(initializer=0)
+    # product_ab = state(initializer=0)
 
-    t0 = 0.0
+    t0 = 0
     tf = 10**6
-    # tf = 0.4 * (10**12)
 
-    initial_residual(dot[reactant_a] == -0.04)
-    initial_residual(dot[reactant_b] == 0.04)
-    initial_residual(dot[product_ab] == 0)
+    reactant_dot_a_ic = parameter()
+    reactant_dot_b_ic = parameter()
+    product_dot_ab_ic = parameter()
+
+    initial_residual(dot[reactant_a] == reactant_dot_a_ic)
+    initial_residual(dot[reactant_b] == reactant_dot_b_ic)
+    initial_residual(dot[product_ab] == product_dot_ab_ic)
 
     shared_residual(
         dot[reactant_a] == -const1 * reactant_a + const2 * reactant_b * product_ab
@@ -34,7 +38,7 @@ class RobertsonProblem(DAESystem):
     shared_residual(reactant_a + reactant_b + product_ab == 1)
 
     class Options:
-        num_steps = 1000
+        num_steps = 50
         logspace = True
 
 
@@ -42,6 +46,9 @@ sim1 = RobertsonProblem(
     const1=0.04,
     const2=1e4,
     const3=3e7,
+    reactant_dot_a_ic=-0.04,
+    reactant_dot_b_ic=0.04,
+    product_dot_ab_ic=0,
 )
 
 sim1.state.reactant_b *= 1e4
@@ -51,10 +58,5 @@ plt.semilogx(sim1.t, sim1.state.product_ab)
 plt.legend(["y0", "y1", "y2"])
 plt.ylabel("Concentration, $c$")
 plt.xlabel("Time, $t$")
-
-# # plt.scatter(
-# #     [0, sim2.state.x1[0], sim2.state.x2[0]],
-# #     [0, sim2.state.y1[0], sim2.state.y2[0]],
-# # )
 plt.grid()
 plt.show()

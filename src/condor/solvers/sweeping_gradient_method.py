@@ -673,11 +673,8 @@ class System:
         return np.array(next_x).squeeze()
 
     def time_generator(self):
-        # breakpoint()
         for t in self._time_generator(self.result.p):
-            breakpoint()
             yield np.array(t).reshape(-1)[0]
-        # breakpoint()
 
     def __call__(self, p):
         self.result = Result(p=p, system=self)

@@ -66,7 +66,7 @@ class DoublePendulumProblem(DAESystem):
     )
 
     class Options:
-        num_steps = 20000
+        num_steps = 10000
         linspace = True
         # solver_kind =
 
@@ -77,13 +77,13 @@ sim2 = DoublePendulumProblem(
     g_const=9.81,
     m1_mass_kg=1.0,
     m2_mass_kg=1.0,
-    theta1=90,
-    theta2=90,
+    theta1=45,
+    theta2=30,
 )
 
 plt.plot(sim2.state.x1, sim2.state.y1)
-# plt.plot(sim2.state.x2, sim2.state.y2)
-# plt.legend(["Mass 1", "Mass 2"])
+plt.plot(sim2.state.x2, sim2.state.y2)
+plt.legend(["Mass 1", "Mass 2"])
 plt.xlabel("x Position, $m$")
 plt.ylabel("y Position, $m$")
 plt.grid()

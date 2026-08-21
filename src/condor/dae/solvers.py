@@ -10,6 +10,7 @@ from sundials4py.core import (
     sunrealtype,
 )
 from dataclasses import dataclass, field
+from typing import NamedTuple
 import numpy as np
 
 
@@ -87,8 +88,8 @@ class Sundials4PySolver(SolverMixin):
         # status = idas.IDASetRootDirection(IDAS.get(), [0, 0, -1])
         # assert status == idas.IDA_SUCCESS
 
-        status = idas.IDASetNoInactiveRootWarn(IDAS.get())
-        assert status == idas.IDA_SUCCESS
+        # status = idas.IDASetNoInactiveRootWarn(IDAS.get())
+        # assert status == idas.IDA_SUCCESS
 
         A = sun4py.core.SUNDenseMatrix(system.NEQ, system.NEQ, sunctx)
         assert A is not None
@@ -104,6 +105,7 @@ class Sundials4PySolver(SolverMixin):
 
         status = idas.IDASetNonlinearSolver(IDAS.get(), NLS)
         assert status == idas.IDA_SUCCESS
+
         # Optional to set Jacobian
 
         # Step 5: Advance the DAE in time
@@ -125,13 +127,9 @@ class Sundials4PySolver(SolverMixin):
             np.copy(yparr),
         )
         # breakpoint()
-        # reproduce Robertson Events in SUNDIALS
-
-        # status = idas.IDACalcIC(IDAS.get(), idas.IDA_YA_YDP_INIT, 1e-2)
-        # status = idas.IDACalcIC(IDAS.get(), idas.IDA_Y_INIT, 1e-2)
-        # assert status == idas.IDA_SUCCESS
+        iout = 0
         # while True:
-        rootsfound = np.zeros(3)
+        rootsfound = np.zeros(3, dtype=sunrealtype)  # check later
         while tret < system.final_time:
             if "logspace" in system.analysis_options:
                 status, tret = idas.IDASolve(
@@ -141,12 +139,7 @@ class Sundials4PySolver(SolverMixin):
                     yp,
                     idas.IDA_NORMAL,
                 )
-                if status == idas.IDA_ROOT_RETURN:
-                    # breakpoint()
-                    status = idas.IDAGetRootInfo(IDAS.get(), rootsfound)
-                    assert status == idas.IDA_SUCCESS
-                    # printf("    rootsfound[] = %3d %3d\n", root_f1, root_f2)
-                assert status == idas.IDA_SUCCESS
+
             else:
                 status, tret = idas.IDASolve(
                     IDAS.get(),
@@ -155,16 +148,26 @@ class Sundials4PySolver(SolverMixin):
                     yp,
                     idas.IDA_NORMAL,
                 )
-                assert status == idas.IDA_SUCCESS
 
-            # breakpoint()
+            if status == idas.IDA_SUCCESS:
+                assert status == idas.IDA_SUCCESS
+            elif status == idas.IDA_ROOT_RETURN:
+                status = idas.IDAGetRootInfo(IDAS.get(), rootsfound)
+                assert status == idas.IDA_SUCCESS
+                results.e.append(Root(iout, rootsfound))
+
             self.store_result(
                 np.copy(tret),
                 np.copy(yarr),
                 np.copy(yparr),
             )
-
+            iout += 1
         # Step 6: Get IDAS Statistics (optional)
+
+
+class Root(NamedTuple):
+    index: int
+    rootsfound: list[int]
 
 
 class NextTimeFromSlice:
@@ -310,6 +313,7 @@ class DAESystemAnalysis:
         result.t = np.array(result.t)
         result.y = np.array(result.y)
         result.yp = np.array(result.yp)
+        result.e = np.array()
         return result
 
 
@@ -324,7 +328,7 @@ class ResultBase:
     t: list[float] = field(default_factory=list)
     y: list[list] = field(default_factory=list)
     yp: list[list] = field(default_factory=list)
-    # e: list[Root] = field(default_factory=list)
+    e: list[Root] = field(default_factory=list)
 
     def __getitem__(self, key):
         return self.__class__(
@@ -332,16 +336,16 @@ class ResultBase:
             t=self.t[key],
             y=self.y[key],
             yp=self.yp[key],
-            # e=self.e[key],
+            e=self.e[key],
         )
 
     def save(self, filename):
-        # e_idxs = [e.index for e in self.e]
-        # e_roots = [e.rootsfound for e in self.e]
+        e_idxs = [e.index for e in self.e]
+        e_roots = [e.rootsfound for e in self.e]
         np.savez_compressed(
             filename,
-            # e_idxs=e_idxs,
-            # e_roots=e_roots,
+            e_idxs=e_idxs,
+            e_roots=e_roots,
             t=self.t,
             y=self.y,
             yp=self.yp,
@@ -351,10 +355,10 @@ class ResultBase:
     @classmethod
     def load(cls, filename):
         data = dict(np.load(filename))
-        # data["e"] = [
-        #     Root(index=int(ei), rootsfound=er)
-        #     for ei, er in zip(data.pop("e_idxs"), data.pop("e_roots"))
-        # ]
+        data["e"] = [
+            Root(index=int(ei), rootsfound=er)
+            for ei, er in zip(data.pop("e_idxs"), data.pop("e_roots"))
+        ]
         return cls(system=None, **data)
 
 
