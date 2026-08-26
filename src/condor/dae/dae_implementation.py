@@ -1,4 +1,4 @@
-from condor.backend.operators import substitute, concat, inf  # , jacobian
+from condor.backend.operators import substitute, concat, inf, jacobian
 from condor.utils import ElementMap
 
 from condor.backend import expression_to_operator, symbol_class
@@ -11,7 +11,24 @@ from condor.dae.solvers_adjoint import (
 from condor.implementations.utils import options_to_kwargs
 import numpy as np
 from condor.fields import BaseElement
-from casadi import MX, sum2, jacobian
+from casadi import MX, sum2
+
+
+def get_state_setter(field, signature, on_field=None, subs=None):
+    expr = field.flatten(on_field)
+    if subs is not None:
+        expr = substitute(expr, subs)
+    func = expression_to_operator(
+        signature,
+        expr,
+        f"{field._model_name}_{field._matched_to._name}_{field._name}",
+    )
+    func.expr = expr
+    return func
+
+
+def isnan(x):
+    return isinstance(x, float) and np.isnan(x)
 
 
 class DAEAnalysisImplementation:
@@ -96,10 +113,10 @@ class DAEAnalysisImplementation:
         # it would be symbolic, could use expression to op or substitute
 
         self.state_sensitivity = MX.sym(
-            "s", self.p.shape[0], self.state.shape[0]
+            "s", self.p.shape[0], self.state_count
         )  # same shape as parameters * state (robertson would be 3x3)
         # casadi MX symbols
-        self.dot_sensitivity = MX.sym("sd", 3, 3)
+        self.dot_sensitivity = MX.sym("sd", self.p.shape[0], self.dot_count)
         self.sensitivity_residual_state = (
             jacobian(self.residual, self.state) @ self.state_sensitivity
         )
@@ -138,6 +155,8 @@ class DAEAnalysisImplementation:
             f"{self.model.__name__}_residual",
         )
 
+        self.e_exprs = []  # this will be function (where the zeros should be found)
+        self.h_exprs = []  # this will be update residual
         if isinstance(self.model.t0, BaseElement):
             t0 = self.model.t0.backend_repr
         elif isinstance(self.model.t0, (symbol_class, int, float, np.ndarray)):
@@ -155,6 +174,129 @@ class DAEAnalysisImplementation:
                 )
             )
         ]
+
+        terminating = []
+        self.dae_model = dae_model = model_instance.__class__
+        self.dae_events = dae_events = [e for e in dae_model.DAEEvent._meta.subclasses]
+        if (
+            not isinstance(self.model.tf, (np.ndarray, float))
+            or not np.isinf(self.model.tf).any()
+        ):
+
+            class DAETerminate(dae_model.DAEEvent):
+                at_time = (self.model.tf,)
+                terminate = True
+
+            dae_events += [DAETerminate]
+            dae_model.DAEEvent._meta.subclasses = dae_model.DAEEvent._meta.subclasses[
+                -1
+            ]
+
+        num_events = len(dae_events)
+        for event_idx, event in enumerate(dae_events):
+            if isnan(event.function) == isnan(event.at_time):
+                msg = f"Event class `{event}` has set both `function` and `at_time`"
+                raise ValueError(msg)
+            if not isnan(getattr(event, "function", np.nan)):  # function event
+                e_expr = event.function
+            else:  # if the event if a time event
+                at_time = event.at_time
+                if hasattr(at_time, "__len__"):
+                    if len(at_time) in [2, 3]:
+                        at_time = slice(*tuple(at_time))
+                    else:
+                        at_time = at_time[0]
+
+                if isinstance(at_time, slice):
+                    if at_time.step is None:
+                        raise ValueError
+
+                    at_time_start = 0 if at_time.start is None else at_time.start
+
+                    e_expr = (
+                        at_time.step
+                        * sin(pi * (self.model.t - at_time_start) / at_time.step)
+                        / (pi * 100)
+                    )
+                    # self.events(solver_res.values.t, solver_res.values.y, gs)
+                    e_expr = mod(self.model.t - at_time_start, at_time.step)
+
+                    # TODO: verify start and stop for at_time slice
+                    if isinstance(at_time_start, symbol_class) or at_time_start != 0.0:
+                        e_expr = e_expr * (self.model.t >= at_time_start)
+                        # if there is a start offset, add a linear term to provide a
+                        # zero-crossing at first occurance
+                        pre_term = (at_time_start - self.model.t) * (
+                            self.model.t <= at_time_start
+                        )
+                    else:
+                        pre_term = 0
+
+                    if at_time.stop is not None:
+                        e_expr = e_expr * (self.model.t <= at_time.stop)
+                        # if there is an end-time, hold constant to prevent additional
+                        # zero crossings -- hopefully works even if stop is on an event
+                        # post_term = (
+                        #     (ode_model.t >= at_time.stop)
+                        #     * at_time.step
+                        #     * casadi.sin(
+                        #         casadi.pi
+                        #         * (at_time.stop - at_time_start)
+                        #         / at_time.step
+                        #     )
+                        #     / casasadi.pi
+                        # )
+                        post_term = (self.model.t >= at_time.stop) * mod(
+                            at_time.stop - at_time_start, at_time.step
+                        )
+                        at_time_stop = at_time.stop
+                    else:
+                        post_term = 0
+                        at_time_stop = inf
+
+                    e_expr = e_expr + pre_term + post_term
+
+                    at_time_slices.append(
+                        NextTimeFromSlice(
+                            expression_to_operator(
+                                [self.p],
+                                concat([at_time_start, at_time_stop, at_time.step]),
+                                f"{ode_model.__name__}_at_times_{event_idx}",
+                            )
+                        )
+                    )
+                else:
+                    if isinstance(at_time, BaseElement):
+                        at_time0 = at_time.backend_repr
+                    else:
+                        at_time0 = at_time
+                    e_expr = at_time0 - self.model.t
+                    at_time_slices.append(
+                        NextTimeFromSlice(
+                            expression_to_operator(
+                                [self.p],
+                                concat([at_time0, at_time0, inf]),
+                                f"{dae_model.__name__}_at_times_{event_idx}",
+                            )
+                        )
+                    )
+
+            self.e_exprs.append(e_expr)
+
+            if event.terminate:
+                terminating.append(event_idx)
+
+            # h_expr = expression_to_operator(
+            #     self.h_expr_vars,
+            #     self.model.DAEEvent._meta.subclasses[0].update_residual.backend_repr,
+            # )
+            # self.h_exprs.append(h_expr)
+        self.events = expression_to_operator(
+            [self.state, self.dot, self.p, self.model.t],
+            concat(self.e_exprs),
+            f"{self.dae_model.__name__}_event",
+        )
+        breakpoint()
 
         if isinstance(self.model.tf, BaseElement):
             tf = self.model.tf.backend_repr
@@ -174,6 +316,10 @@ class DAEAnalysisImplementation:
             )
         )
 
+        self.model.DAEEvent._meta.subclasses[0]
+        self.m
+
+        breakpoint()
         self.dae_analysis_soln = DAESystemAnalysis(
             initial_conditions=self.initial_conditions,
             p=self.initial_conditions.parameter.flatten(),
@@ -182,6 +328,9 @@ class DAEAnalysisImplementation:
             state_count=self.state_count,
             count_diff=self.count_diff,
             residual_func=self.residual_func,
+            events=self.events,
+            updates=self.h_exprs,
+            terminating=terminating,
             sens_func=self.sens_func,
             sens_state_initial_condition_func=self.sens_state_initial_condition_func,
             sens_dot_initial_condition_func=self.sens_dot_initial_condition_func,

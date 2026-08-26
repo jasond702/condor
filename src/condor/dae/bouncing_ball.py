@@ -25,6 +25,12 @@ class BouncingBallProblem(DAESystem):
     shared_residual(dot[velocity] == -g_const)
     shared_residual(dot[height] == velocity)
 
+    t0 = 0
+    tf = 20
+
+    class Options:
+        num_steps = 50
+
 
 class Bounce(BouncingBallProblem.DAEEvent):
     function = height

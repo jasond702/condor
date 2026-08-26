@@ -58,3 +58,6 @@ plt.xlabel("Time, $t$")
 # # )
 plt.grid()
 plt.show()
+
+class RobertsonEvents(RobertsonProblem.DAEEvent):
+    function = 

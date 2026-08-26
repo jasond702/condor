@@ -128,8 +128,14 @@ class Sundials4PySolver(SolverMixin):
         )
         # breakpoint()
         iout = 0
-        # while True:
-        rootsfound = np.zeros(3, dtype=sunrealtype)  # check later
+        while True:
+            next_t = next(time_generator)
+            if np.isinf(next_t):
+                break
+            if next_t < 0:
+                # breakpoint()
+                pass
+            rootsfound = np.zeros(3, dtype=sunrealtype)  # check later
         while tret < system.final_time:
             if "logspace" in system.analysis_options:
                 status, tret = idas.IDASolve(

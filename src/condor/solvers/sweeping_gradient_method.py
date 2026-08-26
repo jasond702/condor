@@ -205,6 +205,7 @@ class SolverSciPyBase(SolverMixin):
 
         # self.gs  will be used to monitor the event function
         self.gs = system.events(last_t, last_x)
+        breakpoint()
         self.solout(last_t, last_x)
 
         rootsfound = (self.gs == 0.0).astype(int)
@@ -226,6 +227,7 @@ class SolverSciPyBase(SolverMixin):
         while True:
             next_t = next(time_generator)
             self.gs = system.events(last_t, last_x)
+            breakpoint()
             if np.isinf(next_t):
                 break
             # if next_t < 0:

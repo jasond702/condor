@@ -474,7 +474,7 @@ class TrajectoryAnalysisType(SubmodelType):
         if exclude_events is not None and include_events is not None:
             msg = "Use only one of include or exclude events"
             raise ValueError(msg)
-
+        breakpoint()
         if include_events is None:
             cls_dict.meta.events = list(cls_dict.meta.primary.Event)
         else:

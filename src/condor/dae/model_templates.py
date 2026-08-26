@@ -1,4 +1,10 @@
-from condor.models import ModelTemplate, ModelType, SubmodelTemplate, SubmodelType
+from condor.models import (
+    ModelTemplate,
+    ModelType,
+    SubmodelTemplate,
+    SubmodelType,
+    SubmodelMetaData,
+)
 from condor.fields import (
     Field,
     AssignedField,
@@ -14,7 +20,9 @@ from condor.fields import (
 )
 import numpy as np
 from condor.dae.dae_implementation import DAEAnalysisImplementation
+from condor.contrib import TrajectoryAnalysisMetaData
 from condor.backend import process_relational_element, get_symbol_data
+from dataclasses import dataclass, field
 
 
 class DuplicatingFreeAssignedField(FreeAssignedField, element_class=FreeElement):
@@ -64,7 +72,67 @@ class DAESystem(ModelTemplate, model_metaclass=DAESystemType):
 
 
 # copied from class Event in contrib.py
+@dataclass
+class DAEEventMetaData(SubmodelMetaData):
+    events: list = field(default_factory=list)
+    modes: list = field(default_factory=list)
+
+
 class DAEEventType(SubmodelType):
+    metadata_class = DAEEventMetaData  # DAEEventMetaData
+
+    @classmethod
+    def __prepare__(
+        cls,
+        *args,
+        include_events=None,
+        exclude_events=None,
+        include_modes=None,
+        exclude_modes=None,
+        **kwargs,
+    ):
+        cls_dict = super().__prepare__(*args, **kwargs)
+        if exclude_events is not None and include_events is not None:
+            msg = "Use only one of include or exclude events"
+            raise ValueError(msg)
+        breakpoint()
+        if include_events is None:
+            cls_dict.meta.events = list(cls_dict.meta.primary.DAEEvent)
+        else:
+            cls_dict.meta.events = include_events
+
+        if exclude_events is not None:
+            cls_dict.meta.events = [
+                event for event in cls_dict.meta.events if event not in exclude_events
+            ]
+
+        # if exclude_modes is not None and include_modes is not None:
+        #     msg = "Use only one of include or exclude modes"
+        #     raise ValueError(msg)
+
+        # if include_modes is None:
+        #     cls_dict.meta.modes = list(cls_dict.meta.primary.Mode)
+        # else:
+        #     cls_dict.meta.modes = include_modes
+
+        # if exclude_modes is not None:
+        #     cls_dict.meta.modes = [
+        #         mode for mode in cls_dict.meta.modes if mode not in exclude_modes
+        #     ]
+        return cls_dict
+
+    def __new__(
+        cls,
+        *args,
+        include_events=None,
+        exclude_events=None,
+        include_modes=None,
+        exclude_modes=None,
+        **kwargs,
+    ):
+        new_cls = super().__new__(cls, *args, **kwargs)
+        return new_cls
+
     @classmethod
     def process_condor_attr(cls, attr_name, attr_val, new_cls):
         state_elem = new_cls._meta.primary.state.get(backend_repr=attr_val)
@@ -90,9 +158,21 @@ class DAEEventType(SubmodelType):
 # sub model templates for events (similar to class Event())
 # instead of update something like reinitialize residual
 # think about API for shared residual
-class DAEEvent(SubmodelTemplate, model_metaclass=DAEEventType, primary=DAESystem):
-    update_residual = MatchedField(
-        DAESystem.initial_residual,
+class DAEEvent(
+    SubmodelTemplate,
+    model_metaclass=DAEEventType,
+    primary=DAESystem,
+    copy_fields=True,
+    copy_embedded_models=False,
+):
+    # update_residual = FreeMatchedField(
+    #     DAESystem.initial_residual,
+    #     direction=Direction.output,
+    #     default_factory=pass_through,
+    # )
+    update_residual = FreeAssignedField(Direction.internal)
+    update = FreeMatchedField(
+        DAESystem.state,
         direction=Direction.output,
         default_factory=pass_through,
     )

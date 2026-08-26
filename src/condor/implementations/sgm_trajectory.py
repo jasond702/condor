@@ -181,10 +181,12 @@ class TrajectoryAnalysis:
         num_events = len(events)
         breakpoint()
         for event_idx, event in enumerate(events):
+            breakpoint()
             if isnan(event.function) == isnan(event.at_time):
                 msg = f"Event class `{event}` has set both `function` and `at_time`"
                 raise ValueError(msg)
             if not isnan(getattr(event, "function", np.nan)):
+                breakpoint()
                 e_expr = event.function
             else:
                 at_time = event.at_time
@@ -292,7 +294,7 @@ class TrajectoryAnalysis:
             adjoint_solver = solver
         state_options["solver_class"] = state_solver.value
         adjoint_options["solver_class"] = adjoint_solver.value
-
+        breakpoint()
         if len(model.dynamic_output):
             self.y_expr = model.dynamic_output.flatten()
             self.y_expr = substitute(self.y_expr, control_sub_expression)
