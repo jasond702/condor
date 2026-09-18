@@ -198,14 +198,11 @@ class SolverSciPyBase(SolverMixin):
         system = self.system
         results = system.result
         last_x = system.initial_state()
-        # breakpoint()
         time_generator = system.time_generator()
         last_t = next(time_generator)
-        # breakpoint()
 
         # self.gs  will be used to monitor the event function
         self.gs = system.events(last_t, last_x)
-        breakpoint()
         self.solout(last_t, last_x)
 
         rootsfound = (self.gs == 0.0).astype(int)
@@ -227,7 +224,6 @@ class SolverSciPyBase(SolverMixin):
         while True:
             next_t = next(time_generator)
             self.gs = system.events(last_t, last_x)
-            breakpoint()
             if np.isinf(next_t):
                 break
             # if next_t < 0:
@@ -250,15 +246,11 @@ class SolverSciPyBase(SolverMixin):
                 last_t,
             )
             self.integration_direction = np.sign(next_t - last_t)
-            print("hi")
-            # breakpoint()
             # each iteration of this loop is one step until next event or time stop
             while True:
-                print("bye")
                 solver.integrate(next_t)
                 if not solver.successful():
                     results.e.append(Root(len(results.t), np.zeros(system.num_events)))
-                    breakpoint()
                     return
 
                 # assume we have an event, either a true event or at next_t
@@ -273,7 +265,6 @@ class SolverSciPyBase(SolverMixin):
                 #     and solver.t != next_t
                 # ):
                 #     breakpoint()
-                breakpoint()
                 if np.any(self.rootinfo):
                     rootsfound = self.rootinfo
 
@@ -325,7 +316,6 @@ class SolverSciPyBase(SolverMixin):
                     last_x,
                     last_t,
                 )
-                # breakpoint()
                 if (
                     (self.integration_direction * last_t)
                     >= (self.integration_direction * next_t)
@@ -346,7 +336,6 @@ class SolverSciPyBase(SolverMixin):
                     breakpoint()
 
             last_t = next_t
-            breakpoint()
 
 
 class SolverSciPyDopri5(SolverSciPyBase):
@@ -462,8 +451,7 @@ class SolverCVODE(SolverMixin):
             # each iteration of this loop is one step until next event or time stop
 
             # look at this loop to get time steps from solver -Jason
-            print("hi")
-            # breakpoint()
+
             while True:
                 solver_res = solver.step(next_t)
                 if solver_res.flag < 0:
@@ -472,7 +460,7 @@ class SolverCVODE(SolverMixin):
                 self.store_result(
                     np.copy(solver_res.values.t), np.copy(solver_res.values.y)
                 )
-                breakpoint()
+
                 if solver_res.flag == StatusEnum.ROOT_RETURN:
                     rootsfound = solver.rootinfo()
 
@@ -558,7 +546,6 @@ class TimeGeneratorFromSlices:
     def __init__(self, time_slices, direction=1):
         self.time_slices = time_slices
         self.direction = direction
-        # breakpoint()
 
     def __call__(self, p):
         # TODO handle negative step?
@@ -573,7 +560,6 @@ class TimeGeneratorFromSlices:
             yield t
             if np.isinf(t):
                 breakpoint()
-        # breakpoint()
 
 
 class System:
@@ -633,19 +619,17 @@ class System:
         # list of root indices that are terminating events...
         # any(rootsfound[terminating]) --> terminates simulation
         self.terminating = terminating
-        # breakpoint()
 
         self.dim_state = dim_state
-        # breakpoint()
+
         self.num_events = len(updates)
-        # breakpoint()
         self.make_solver(
             **solver_options,
         )
         # breakpoint()
 
     def make_solver(self, solver_class, **solver_options):
-        # breakpoint()
+
         self.system_solver = solver_class(  # SolverSciPy( #SolverCVODE(
             system=self,
             **solver_options,
@@ -665,6 +649,7 @@ class System:
         return np.array(self._jac(self.result.p, t, x)).squeeze()
 
     def events(self, t, x):
+
         return np.array(self._events(self.result.p, t, x)).reshape(-1)
 
     def update(self, t, x, rootsfound):
@@ -682,7 +667,6 @@ class System:
         self.result = Result(p=p, system=self)
         self.system_solver.simulate()
         result = self.result
-        breakpoint()
         result.t = np.array(result.t)
         if self.dim_state == 1:
             result.x = [np.atleast_1d(x) for x in result.x]

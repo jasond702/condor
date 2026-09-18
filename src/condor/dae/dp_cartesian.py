@@ -66,7 +66,7 @@ class DoublePendulumProblem(DAESystem):
     )
 
     class Options:
-        num_steps = 10000
+        # num_steps = 10000
         linspace = True
         # solver_kind =
 

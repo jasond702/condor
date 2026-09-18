@@ -118,7 +118,7 @@ class AlgebraicSystem(InitializerMixin):
         self.model = model
 
         InitializerMixin.construct(self, model)
-        # breakpoint()
+
         self.callback = CasadiRootfinderWarmstart(
             primary_function=self.residual_func,
             output_function=self.output_func,

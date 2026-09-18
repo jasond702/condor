@@ -36,6 +36,7 @@ class RobertsonProblem(DAESystem):
     class Options:
         num_steps = 1000
         logspace = True
+        one_step = 1
 
 
 sim1 = RobertsonProblem(
@@ -59,5 +60,15 @@ plt.xlabel("Time, $t$")
 plt.grid()
 plt.show()
 
+
 class RobertsonEvents(RobertsonProblem.DAEEvent):
-    function = 
+    function = reactant_a - 0.1
+    function = reactant_b * 1e4 - 0.2
+    function = product_ab - 0.7
+
+
+sim2 = RobertsonProblem(
+    const1=0.04,
+    const2=1e4,
+    const3=3e7,
+)

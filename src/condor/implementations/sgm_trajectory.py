@@ -29,7 +29,9 @@ from .utils import options_to_kwargs
 def get_state_setter(field, signature, on_field=None, subs=None):
     expr = field.flatten(on_field)
     if subs is not None:
+        # breakpoint()
         expr = substitute(expr, subs)
+    # breakpoint()
     func = expression_to_operator(
         signature,
         expr,
@@ -98,6 +100,7 @@ class TrajectoryAnalysis:
         ]
 
         self.traj_out_expr = model.trajectory_output.flatten()
+        breakpoint()
         self.can_sgm = isinstance(self.p, symbol_class) and isinstance(
             self.traj_out_expr, symbol_class
         )
@@ -161,7 +164,7 @@ class TrajectoryAnalysis:
                 )
             )
         ]
-        breakpoint()
+        # breakpoint()
 
         terminating = []
 
@@ -179,14 +182,14 @@ class TrajectoryAnalysis:
             ode_model.Event._meta.subclasses = ode_model.Event._meta.subclasses[:-1]
 
         num_events = len(events)
-        breakpoint()
+        # breakpoint()
         for event_idx, event in enumerate(events):
-            breakpoint()
+            # breakpoint()
             if isnan(event.function) == isnan(event.at_time):
                 msg = f"Event class `{event}` has set both `function` and `at_time`"
                 raise ValueError(msg)
             if not isnan(getattr(event, "function", np.nan)):
-                breakpoint()
+                # breakpoint()
                 e_expr = event.function
             else:
                 at_time = event.at_time
@@ -294,7 +297,7 @@ class TrajectoryAnalysis:
             adjoint_solver = solver
         state_options["solver_class"] = state_solver.value
         adjoint_options["solver_class"] = adjoint_solver.value
-        breakpoint()
+        # breakpoint()
         if len(model.dynamic_output):
             self.y_expr = model.dynamic_output.flatten()
             self.y_expr = substitute(self.y_expr, control_sub_expression)
@@ -305,7 +308,7 @@ class TrajectoryAnalysis:
             )
         else:
             self.dynamic_output_func = None
-        breakpoint()
+        # breakpoint()
         self.state_system = sgm.System(
             dim_state=model.state._count,
             initial_state=self.state0,
@@ -331,7 +334,7 @@ class TrajectoryAnalysis:
             integrand_terms=self.traj_out_integrand_func,
             terminal_terms=self.traj_out_terminal_term_func,
         )
-        breakpoint()
+        # breakpoint()
         self.callback = FunctionOperator(
             function=self.trajectory_analysis_nom,
             get_jacobian_func=self.generate_sgm_jacobian if self.can_sgm else None,
@@ -340,7 +343,7 @@ class TrajectoryAnalysis:
             implementation=self,
             jacobian_of=None,
         )
-        breakpoint()
+        # breakpoint()
 
     def generate_sgm_jacobian(self, jacobian_of):
         state_equation_func = self.state_equation_func
@@ -583,6 +586,7 @@ class TrajectoryAnalysis:
     def __call__(self, model_instance):
         self.callback.from_implementation = True
         self.args = model_instance.parameter.flatten()
+        breakpoint()
         self.out = self.callback(self.args)
         self.callback.from_implementation = False
 
@@ -606,3 +610,4 @@ class TrajectoryAnalysis:
                 self.out,
             )
         )
+        breakpoint()

@@ -1012,10 +1012,14 @@ class FreeMatchedField(MatchedField, element_class=MatchedElement):
         match = self.key_to_matched_element(key)
         item = self.get(match=match)
         # if the matching element does not exist then create the symbol
+        breakpoint()
         if isinstance(item, list) and not item:  # based on FreeField()
             backend_name = f"{self._resolve_name}_{len(self._elements)}"
+            # new string like backend_name, update_dot_height
+            condor_name = f"{self._resolve_name}_{match.name}"
             new_kwargs = make_backend_symbol(backend_name=backend_name, **kwargs)
-            self.create_element(**new_kwargs, match=match)
+            breakpoint()
+            self.create_element(**new_kwargs, match=match, name=condor_name)
             return self._elements[-1].backend_repr
         # otherwise return the symbol of the existing matching element
         return item.backend_repr

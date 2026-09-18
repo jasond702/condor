@@ -347,7 +347,6 @@ class Field:
     def __getattr__(self, with_name):
         """Make element names dot-accessible on Field, to match behavior on field
         dataclass"""
-        # breakpoint()
         return self.get(name=with_name).backend_repr
 
     def dataclass_of(self, attr="backend_repr", default=None):
@@ -879,6 +878,9 @@ class MatchedElement(BaseElement, MatchedElementMixin):
         )
 
 
+# FreeMatchedElement that inherits MatchedElement, update name call = condor_name
+
+
 def zero_like(match):
     return np.zeros(match.shape)
 
@@ -1016,8 +1018,9 @@ class FreeMatchedField(MatchedField, element_class=MatchedElement):
         # if the matching element does not exist then create the symbol
         if isinstance(item, list) and not item:  # based on FreeField()
             backend_name = f"{self._resolve_name}_{len(self._elements)}"
+            condor_name = f"{self._resolve_name}_{match.name}"
             new_kwargs = make_backend_symbol(backend_name=backend_name, **kwargs)
-            self.create_element(**new_kwargs, match=match)
+            self.create_element(**new_kwargs, match=match, name=condor_name)
             return self._elements[-1].backend_repr
         # otherwise return the symbol of the existing matching element
         return item.backend_repr
