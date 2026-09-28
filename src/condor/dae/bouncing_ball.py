@@ -35,8 +35,8 @@ class Bounce(BouncingBallProblem.Event):
     function = height
     update_residual(update[height] == 0)
     update_residual(update[velocity] == -coeff * velocity)
-    update_residual(update_dot[height] == update[velocity])
-    update_residual(update_dot[velocity] == -g_const)
+    # update_residual(update_dot[height] == update[velocity])
+    # update_residual(update_dot[velocity] == -g_const)
     # coeff is 0 < coeff < 1
 
     # update[velocity] == -coeff * velocity
@@ -47,9 +47,9 @@ class MaxHeight(BouncingBallProblem.Event):
     function = velocity
 
 
-# class EndEarly(BouncingBallProblem.Event):
-#     at_time = 2.5
-#     terminate = True
+class EndEarly(BouncingBallProblem.Event):
+    at_time = 2.5
+    terminate = False
 
 
 class BounceSim(BouncingBallProblem.DAEAnalysis):
@@ -71,3 +71,5 @@ ax[1].set_ylabel("Velocity, $m$")
 ax[1].grid(True)
 ax[1].set_title("Bouncing Ball, Velocity vs. Time")
 plt.show()
+
+breakpoint()

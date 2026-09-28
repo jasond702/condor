@@ -5,7 +5,7 @@ from condor.backend import expression_to_operator, symbol_class, FunctionOperato
 from condor import AlgebraicSystem
 from condor.dae.solvers_adjoint import (
     DAESystem,
-    DAETrajectoryAnalysis,
+    # DAETrajectoryAnalysis,
 )
 from condor.implementations.utils import options_to_kwargs
 import condor.solvers.sweeping_gradient_method as sgm
@@ -37,6 +37,7 @@ class DAEAnalysisImplementation:
             cse=True,
         )
         self.model = model_instance.__class__
+        self.dae_model = dae_model = self.model._meta.primary
         self.options_dict = options_to_kwargs(self.model)
         self.p = self.model.parameter.flatten()
 
@@ -45,60 +46,75 @@ class DAEAnalysisImplementation:
 
         self.initial_residual = self.model.initial_residual.flatten()
         self.residual = self.model.residual.flatten()
-        # self.shared_residual = self.model.shared_residual.flatten(), was to test can remove
         self.output = self.model.output.flatten()
 
         self.final_time = self.model.tf
         self.start_time = self.model.t0
 
-        self.state_count = self.state.shape[0]
-        self.dot_count = self.dot.shape[0]
+        self.state_count = self.model.state._count
+        self.dot_count = self.model.dot._count
         self.total_count = self.state_count + self.dot_count
         self.count_diff = self.state_count - self.dot_count
-        self.all_count = self.state_count + self.dot_count + self.p.shape[0]
 
         breakpoint()
+        self.simulation_signature = [
+            self.model.t,
+            self.state,
+            self.dot,
+            self.p,
+        ]
+
+        self.residual_func = expression_to_operator(
+            self.simulation_signature,
+            self.residual,
+            f"{self.model.__name__}_residual",
+        )
+
+        self.trajectory_output_expr = self.model.trajectory_output.flatten()
+        self.can_sgm = isinstance(self.p, symbol_class) and isinstance(
+            self.trajectory_output_expr, symbol_class
+        )
+
+        self.trajectory_output_integrand = self.model.trajectory_output.flatten(
+            "integrand"
+        )
+        self.trajectory_output_integrand_func = expression_to_operator(
+            self.simulation_signature,
+            self.trajectory_output_integrand,
+            f"{self.model.__name__}_trajectory_output_integrand",
+        )
+
+        self.trajectory_output_terminal_term = self.model.trajectory_output.flatten(
+            "terminal_term"
+        )
+        self.trajectory_output_terminal_term_func = expression_to_operator(
+            self.simulation_signature,
+            self.trajectory_output_terminal_term,
+            f"{self.model.__name__}_trajectory_output_terminal_term",
+        )
 
         # solve for the initial conditions from the initial residuals
         class DAEInitialConditionSolve(AlgebraicSystem):
             dae_model = self.model._meta.primary
-            # def create_variables_and_parameters():
-            #     param_vals = [0] * self.p.shape[0]
-            #     state_vals = [0] * self.dot.shape[0]
-            #     dot_vals = [0] * self.state.shape[0]
 
-            #     for idx, elem in enumerate(self.model.parameter):
-            #         param_vals[idx] = parameter()
-            #     for idx, elem in enumerate(self.model.state):
-            #         state_vals[idx] = variable()
-            #     for idx, elem in enumerate(self.model.dot):
-            #         dot_vals[idx] = variable()
-
-            #     return param_vals, state_vals, dot_vals
-
-            # p, x, xdot = create_variables_and_parameters()
-            param_vals = [0] * self.p.shape[0]
-            state_vals = [0] * self.dot.shape[0]
-            dot_vals = [0] * self.state.shape[0]
-
-            for idx, elem in enumerate(self.model.parameter):
-                param_vals[idx] = parameter(name=elem.name)
-
-            for idx, elem in enumerate(self.model.state):
-                state_vals[idx] = variable(name=elem.name)
-
-            for idx, elem in enumerate(self.model.dot):
-                dot_vals[idx] = variable(name=f"{elem.name}_dot")
-
-            p_wrap = dae_model.parameter.wrap(param_vals)
-            state_wrap = dae_model.state.wrap(state_vals)
-            dot_wrap = dae_model.dot.wrap(dot_vals)
             input_dict = ElementMap()
-            for idx, elem in enumerate(p_wrap.field):
+
+            p_backend = parameter(shape=dae_model.parameter._count)
+            p_wrap = dae_model.parameter.wrap(p_backend)
+            for idx, elem in enumerate(self.model.parameter):
                 input_dict[elem.backend_repr] = p_wrap.flatten()[idx]
-            for idx, elem in enumerate(state_wrap.field):
+
+            state_backend = variable(
+                shape=dae_model.state._count,
+                initializer=dae_model.state.flatten("initializer").reshape(-1, 1),
+            )  # , initializer=1)
+            state_wrap = dae_model.state.wrap(state_backend)
+            for idx, elem in enumerate(self.model.state):
                 input_dict[elem.backend_repr] = state_wrap.flatten()[idx]
-            for idx, elem in enumerate(dot_wrap.field):
+
+            dot_backend = variable(shape=dae_model.dot._count)
+            dot_wrap = dae_model.dot.wrap(dot_backend)
+            for idx, elem in enumerate(self.model.dot):
                 input_dict[elem.backend_repr] = dot_wrap.flatten()[idx]
 
             for index, elem in enumerate(self.model.initial_residual):
@@ -107,6 +123,9 @@ class DAEAnalysisImplementation:
                     name=f"residual_{index}",
                 )
 
+        def ic_solver(p):
+            ic_solved = DAEInitialConditionSolve(p)
+            return ic_solved.state_backend, ic_solved.dot_backend
             """
                 within IC, create 1 param = size of DAE param
                 2 var = x, xdot
@@ -117,17 +136,6 @@ class DAEAnalysisImplementation:
                 do for all solvers (IC + event)
                 possible to make function to create parameter and variables for me
             """
-
-        # remove after stuff above works
-        parameter_names = []
-        for element in self.model.parameter._elements:
-            parameter_names.append(element.name)
-        for element in self.model.state._elements:
-            parameter_names.append(element.name)
-        for element in self.model.dot._elements:
-            parameter_names.append(f"{element.name}_dot")
-
-        # sub_dict =
 
         # self.initial_conditions = DAEInitialConditionSolve(**model_instance.parameter)
 
@@ -194,41 +202,6 @@ class DAEAnalysisImplementation:
         #     f"{self.model.__name__}_sensitivity_residual",
         # )
 
-        self.simulation_signature = [
-            self.state,
-            self.dot,
-            self.p,
-            self.model.t,
-        ]  # move t to the front
-        self.residual_func = expression_to_operator(
-            self.simulation_signature,
-            self.residual,
-            f"{self.model.__name__}_residual",
-        )
-
-        self.trajectory_output_expr = self.model.trajectory_output.flatten()
-        self.can_sgm = isinstance(self.p, symbol_class) and isinstance(
-            self.trajectory_output_expr, symbol_class
-        )
-
-        self.trajectory_output_integrand = self.model.trajectory_output.flatten(
-            "integrand"
-        )
-        self.trajectory_output_integrand_func = expression_to_operator(
-            self.simulation_signature,
-            self.trajectory_output_integrand,
-            f"{self.model.__name__}_trajectory_output_integrand",
-        )
-
-        self.trajectory_output_terminal_term = self.model.trajectory_output.flatten(
-            "terminal_term"
-        )
-        self.trajectory_output_terminal_term_func = expression_to_operator(
-            self.simulation_signature,
-            self.trajectory_output_terminal_term,
-            f"{self.model.__name__}_trajectory_output_terminal_term",
-        )
-
         self.e_exprs = []  # this will be function (where the zeros should be found)
         self.h_exprs = []  # this will be update residual
         if isinstance(self.model.t0, BaseElement):
@@ -248,9 +221,9 @@ class DAEAnalysisImplementation:
                 )
             )
         ]
-        breakpoint()
+
         terminating = []
-        self.dae_model = dae_model = model_instance.__class__._meta.primary
+        time_trigger = []
         self.dae_events = dae_events = [e for e in dae_model.Event._meta.subclasses]
 
         if (
@@ -263,6 +236,108 @@ class DAEAnalysisImplementation:
                 terminate = True
 
             dae_events += [DAETerminate]  # this is internal for tf
+
+            self.event_solvers = []
+            for EventModel in self.dae_model.Event._meta.subclasses:
+                if EventModel.update_residual._count > 0:
+
+                    class DAEEventUpdateSolver(
+                        AlgebraicSystem, name=f"{EventModel.__name__}UpdateSolver"
+                    ):
+                        dae_model = self.dae_model
+
+                        if (
+                            EventModel.update_residual._count
+                            == self.model.shared_residual._count
+                        ):
+                            for idx, elem in enumerate(self.model.state):
+                                EventModel.update_dot[elem.name]
+                                EventModel.update_dot._elements[idx].name = elem.name
+
+                        input_dict = ElementMap()
+                        residual_swap_dict = ElementMap()
+
+                        t_parameter = parameter(shape=1)
+                        input_dict[dae_model.t] = t_parameter
+
+                        p_backend = parameter(shape=dae_model.parameter._count)
+                        p_wrap = dae_model.parameter.wrap(p_backend)
+                        for idx, elem in enumerate(self.model.parameter):
+                            input_dict[elem.backend_repr] = p_wrap.flatten()[idx]
+
+                        p_state_backend = parameter(shape=dae_model.state._count)
+                        p_state_wrap = dae_model.state.wrap(p_state_backend)
+                        for idx, elem in enumerate(self.model.state):
+                            input_dict[elem.backend_repr] = p_state_wrap.flatten()[idx]
+
+                        update_state_backend = variable(shape=dae_model.state._count)
+                        update_state_wrap = dae_model.state.wrap(update_state_backend)
+                        for idx, elem in enumerate(EventModel.update):
+                            input_dict[elem.backend_repr] = update_state_wrap.flatten()[
+                                idx
+                            ]
+                            residual_swap_dict[
+                                dae_model.state._elements[idx].backend_repr
+                            ] = elem.backend_repr
+
+                        p_dot_backend = parameter(shape=dae_model.dot._count)
+                        p_dot_wrap = dae_model.dot.wrap(p_dot_backend)
+                        for idx, elem in enumerate(self.model.dot):
+                            input_dict[elem.backend_repr] = p_dot_wrap.flatten()[idx]
+
+                        update_dot_backend = variable(shape=dae_model.dot._count)
+                        update_dot_wrap = dae_model.dot.wrap(update_dot_backend)
+                        for idx, elem in enumerate(EventModel.update_dot):
+                            input_dict[elem.backend_repr] = update_dot_wrap.flatten()[
+                                idx
+                            ]
+                            residual_swap_dict[
+                                dae_model.dot._elements[idx].backend_repr
+                            ] = elem.backend_repr
+
+                        for index, elem in enumerate(EventModel.update_residual):
+                            residual(
+                                substitute(elem.backend_repr, input_dict),
+                                name=f"residual_{index}",
+                            )
+                        next_idx = index + 1
+                        for index, elem in enumerate(self.model.residual):
+                            residual(
+                                substitute(
+                                    substitute(elem.backend_repr, residual_swap_dict),
+                                    input_dict,
+                                ),
+                                name=f"residual_{index + next_idx}",
+                            )
+
+                    def wrapped_solver(t, p, y, yp):
+                        solved = DAEEventUpdateSolver(t, p, y, yp)
+
+                        return solved.update_state_backend, solved.update_dot_backend
+
+                    self.event_solvers.append(wrapped_solver)
+                else:
+
+                    def pass_through_update(t, p, y, yp):
+                        return y, yp
+
+                    self.event_solvers.append(pass_through_update)
+
+                    # for idx, elem in enumerate(self.model.state):
+                    #     residual(
+                    #         update_state_wrap.flatten()[idx]
+                    #         == p_state_wrap.flatten()[idx],
+                    #         name=f"residual_{idx}",
+                    #     )
+                    #     next_idx = idx + 1
+                    # for idx, elem in enumerate(self.model.dot):
+                    #     residual(
+                    #         update_dot_wrap.flatten()[idx]
+                    #         == p_dot_wrap.flatten()[idx],
+                    #         name=f"residual_{idx + next_idx}",
+                    #     )
+
+                # if else, if -> append wrapped, else -> append pass_through
             dae_model.Event._meta.subclasses = dae_model.Event._meta.subclasses[:-1]
 
         num_events = len(dae_events)
@@ -355,9 +430,11 @@ class DAEAnalysisImplementation:
                     )
 
             self.e_exprs.append(e_expr)
-
+            # breakpoint()
             if event.terminate:
                 terminating.append(event_idx)
+            if not isnan(event.at_time):
+                time_trigger.append(event_idx)
 
             # if event.at_time:
 
@@ -384,64 +461,11 @@ class DAEAnalysisImplementation:
                 )
             )
         )
-        breakpoint()
-        self.event_solvers = []
-        for EventModel in self.dae_model.Event._meta.subclasses:
-            breakpoint()
-
-            class DAEEventUpdateSolver(
-                AlgebraicSystem, name=f"{EventModel.__name__}UpdateSolver"
-            ):
-                residual_dict = ElementMap()
-                for elem in self.model.parameter:
-                    residual_dict[elem] = parameter(
-                        name=elem.name,
-                        shape=elem.shape,
-                    )
-                for elem in self.model.state:
-                    residual_dict[elem] = parameter(
-                        name=elem.name,
-                        shape=elem.shape,
-                    )
-                for elem in self.model.dot:
-                    residual_dict[elem] = parameter(
-                        name=f"{elem.name}_dot",
-                        shape=elem.shape,
-                    )
-
-                for elem in EventModel.update:
-                    backend_name = f"{elem.name}_update"
-                    residual_dict[elem] = variable(
-                        name=backend_name,
-                        shape=elem.shape,
-                    )
-                for elem in EventModel.update_dot:
-                    backend_name = f"{elem.name}_dot_update"
-                    residual_dict[elem] = variable(
-                        name=backend_name,
-                        shape=elem.shape,
-                    )
-
-                # add a for loop for the dots, update_dot
-                input_dict = residual_dict.as_("backend_repr")
-                # breakpoint()
-                if EventModel.update_residual:
-                    for index, elem in enumerate(EventModel.update_residual):
-                        residual(
-                            substitute(elem.backend_repr, input_dict),
-                            name=f"residual_{index}",
-                        )
-                # if not EventModel.update_residual:
-
-                # pass through, if no residual, if len(update_res) == len(shared_res)
-
-            self.event_solvers.append(DAEEventUpdateSolver)
 
         breakpoint()
         self.dae_analysis_soln = DAESystem(
-            dae_initial_conditions_solver=DAEInitialConditionSolve,
+            dae_initial_conditions_solver=ic_solver,
             p=model_instance.parameter,
-            parameter_names=parameter_names,
             final_time=self.final_time,
             start_time=self.start_time,
             state_count=self.state_count,
@@ -450,6 +474,7 @@ class DAEAnalysisImplementation:
             events=self.events_func,
             event_solvers=self.event_solvers,
             terminating=terminating,
+            time_triggering=time_trigger,
             # sens_func=self.sens_func,
             # sens_state_initial_condition_func=self.sens_state_initial_condition_func,
             # sens_dot_initial_condition_func=self.sens_dot_initial_condition_func,
@@ -457,19 +482,19 @@ class DAEAnalysisImplementation:
             **self.options_dict,
         )
 
-        self.nominal_trajectory_analysis = DAETrajectoryAnalysis(
-            state_system=self.dae_analysis_soln,
-            integrand_terms=self.trajectory_output_integrand_func,
-            terminal_terms=self.trajectory_output_terminal_term_func,
-        )
-        self.callback = FunctionOperator(
-            function=self.nominal_trajectory_analysis,
-            get_jacobian_func=None,  # self.generate_sgm_jacobian if self.can_sgm else None
-            input_symbol=self.p,
-            output_symbol=self.trajectory_output_expr,
-            implementation=self,
-            jacobian_of=None,
-        )
+        # self.nominal_trajectory_analysis = DAETrajectoryAnalysis(
+        #     state_system=self.dae_analysis_soln,
+        #     integrand_terms=self.trajectory_output_integrand_func,
+        #     terminal_terms=self.trajectory_output_terminal_term_func,
+        # )
+        # self.callback = FunctionOperator(
+        #     function=self.nominal_trajectory_analysis,
+        #     get_jacobian_func=None,  # self.generate_sgm_jacobian if self.can_sgm else None
+        #     input_symbol=self.p,
+        #     output_symbol=self.trajectory_output_expr,
+        #     implementation=self,
+        #     jacobian_of=None,
+        # )
         # update to CVODE branch
         self(model_instance)
 
@@ -479,10 +504,11 @@ class DAEAnalysisImplementation:
     def __call__(self, model_instance):
         self.soln = self.dae_analysis_soln(p=self.p)
 
-        self.callback.from_implementation = True
-        self.args = model_instance.parameter.flatten()
-        self.out = self.callback(self.args)
-        self.callback.from_implementation = False
+        # self.callback.from_implementation = True
+        # self.args = model_instance.parameter.flatten()
+        # # self.out = self.callback(self.args)
+        self.out = 0
+        # self.callback.from_implementation = False
 
         breakpoint()
 

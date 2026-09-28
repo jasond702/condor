@@ -14,10 +14,6 @@ class RobertsonProblem(DAESystem):
     reactant_b = state(initializer=0)  # y1
     product_ab = state(initializer=0)  # y2
 
-    t0 = 0.0
-    tf = 10**6
-    # tf = 0.4 * (10**12)
-
     initial_residual(dot[reactant_a] == -0.04)
     initial_residual(dot[reactant_b] == 0.04)
     initial_residual(dot[product_ab] == 0)
@@ -34,12 +30,16 @@ class RobertsonProblem(DAESystem):
     shared_residual(reactant_a + reactant_b + product_ab == 1)
 
     class Options:
-        num_steps = 1000
-        logspace = True
         one_step = 1
 
 
-sim1 = RobertsonProblem(
+class RobertsonAnalysis(RobertsonProblem.DAEAnalysis):
+    t0 = 0.0
+    tf = 10**6
+    # tf = 0.4 * (10**12)
+
+
+sim1 = RobertsonAnalysis(
     const1=0.04,
     const2=1e4,
     const3=3e7,
@@ -61,14 +61,62 @@ plt.grid()
 plt.show()
 
 
-class RobertsonEvents(RobertsonProblem.DAEEvent):
+class RobertsonReactantAEvent(RobertsonProblem.Event):
     function = reactant_a - 0.1
+
+
+class RobertsonReactantBEvent(RobertsonProblem.Event):
     function = reactant_b * 1e4 - 0.2
+
+
+class RobertsonProductABEvent(RobertsonProblem.Event):
     function = product_ab - 0.7
 
 
-sim2 = RobertsonProblem(
+class RobertsonEventSim(RobertsonProblem.DAEAnalysis):
+    t0 = 10 ** (-6)
+    tf = 10**6
+    # tf = 0.4 * (10**12)
+
+
+sim2 = RobertsonEventSim(
     const1=0.04,
     const2=1e4,
     const3=3e7,
 )
+
+sim2.state.reactant_b *= 1e4
+plt.semilogx(sim2.t, sim2.state.reactant_a)
+plt.semilogx(sim2.t, sim2.state.reactant_b)
+plt.semilogx(sim2.t, sim2.state.product_ab)
+plt.legend(["y0", "y1", "y2"])
+plt.ylabel("Concentration, $c$")
+plt.xlabel("Time, $t$")
+# breakpoint()
+root_idx = [root.index for root in sim2.implementation.soln.e]
+plt.scatter(
+    [
+        sim2.t[root_idx[1]],
+        sim2.t[root_idx[2]],
+        sim2.t[root_idx[5]],
+        sim2.t[root_idx[1]],
+        sim2.t[root_idx[2]],
+        sim2.t[root_idx[5]],
+        sim2.t[root_idx[1]],
+        sim2.t[root_idx[2]],
+        sim2.t[root_idx[5]],
+    ],
+    [
+        sim2.state.reactant_a[root_idx[1]],
+        sim2.state.reactant_a[root_idx[2]],
+        sim2.state.reactant_a[root_idx[5]],
+        sim2.state.reactant_b[root_idx[1]],
+        sim2.state.reactant_b[root_idx[2]],
+        sim2.state.reactant_b[root_idx[5]],
+        sim2.state.product_ab[root_idx[1]],
+        sim2.state.product_ab[root_idx[2]],
+        sim2.state.product_ab[root_idx[5]],
+    ],
+)
+plt.grid()
+plt.show()

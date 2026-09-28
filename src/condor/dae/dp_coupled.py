@@ -71,10 +71,6 @@ class DoublePendulumProblem(DAESystem):
         == 0
     )
 
-    class Options:
-        num_steps = 100
-        linspace = True
-
 
 sim2 = DoublePendulumProblem(
     L1_length_meter=1.0,

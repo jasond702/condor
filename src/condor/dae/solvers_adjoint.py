@@ -43,6 +43,8 @@ class Sundials4PySolver(SolverMixin):
         rtol=1e-10,
     ):
         self.system = system
+        # self.sen_system
+        # self.adjoint_system
         self.atol = atol
         self.rtol = rtol
 
@@ -56,6 +58,7 @@ class Sundials4PySolver(SolverMixin):
         assert self.y is not None
         assert self.yp is not None
 
+        # self.Q <- for quadrature
         self.sunctx = sunctx
 
         # move solver (LS and NLS) here
@@ -70,11 +73,22 @@ class Sundials4PySolver(SolverMixin):
         self.NLS = sun4py.core.SUNNonlinSol_Newton(self.y, self.sunctx)
         assert self.NLS is not None
 
+        # if adjoint_system is not None:
+        # self.uB
+        # self.qB
+        # self.lsb
+
     def assign_nvec_value(self, yvec, y0):
         y = N_VGetNumpyArray(yvec)
         y[:] = y0
 
         return 0
+
+    def adjoint_quad(self):
+        pass
+
+    def adjoint_dots(self):
+        pass
 
     def simulate(self, one_step, max_step, test_out_vectors=None):
         system = self.system
@@ -82,7 +96,8 @@ class Sundials4PySolver(SolverMixin):
 
         # last_s = system.sens_initial_state.T
         # last_sd = system.sens_initial_dot.T
-        last_x, last_xp = system.dae_initial_conditions(system.p_model)
+        # breakpoint()
+        last_x, last_xp = system.dae_initial_conditions(system.p)
 
         SUNFALSE = 0
         SUNTRUE = 1
@@ -114,22 +129,34 @@ class Sundials4PySolver(SolverMixin):
 
         self.assign_nvec_value(y, last_x)
         self.assign_nvec_value(yp, last_xp)
+        yarr = N_VGetNumpyArray(y)
+        yparr = N_VGetNumpyArray(yp)
 
+        # Q = self.Q
+        # Qarr = N_VGetNumpyArray(Q)
+        # Qarr[:] = 0.0
+
+        # if self.adjoint_system is not None and test_out_vectors is not None:
         breakpoint()
+        grab_next_t = True
         while True:
-            next_t = next(time_generator)
+            # move if grab_next_t
+            if grab_next_t:
+                next_t = next(time_generator)
+
             if np.isinf(next_t):
                 break
             if next_t < 0:
                 pass
 
+            # adaptive min steps?
+
             # create and initialize IDAS
             IDAS = idas.IDACreate(self.sunctx)
             assert IDAS is not None
-
-            status = idas.IDAInit(
-                IDAS.get(), system.residualfunction, system.start_time, y, yp
-            )
+            results.IDAS_mems.append(IDAS)
+            # breakpoint()
+            status = idas.IDAInit(IDAS.get(), system.residualfunction, last_t, y, yp)
 
             # Set tolerances
             status = idas.IDASStolerances(IDAS.get(), self.rtol, self.atol)
@@ -146,8 +173,12 @@ class Sundials4PySolver(SolverMixin):
             status = idas.IDASetNonlinearSolver(IDAS.get(), NLS)
             assert status == idas.IDA_SUCCESS
 
-            # TODO: copy over quad stuff
+            # if system.dim_output and self.sen_system is None and self.adjoint_system is None
+            # status = idas.IDAQuadInit(IDAS.get(), integrand terms, Q)
+            # assert status == idas.IDA_SUCCESS
 
+            # if self.sen_system is not None and test_in is not None:
+            # status = idas.IDASensInit()
             # set up quad and sens init here
 
             # yS = [N_VClone(y) for _ in range(3)]
@@ -190,6 +221,10 @@ class Sundials4PySolver(SolverMixin):
             status = idas.IDASetMaxStep(IDAS.get(), max_step)  # smooth was set to 0.01
             assert status == idas.IDA_SUCCESS
 
+            # if self.adjoint_system is not None: # and test_out_vectors is not None:
+            # status = idas.IDAAdjInit(IDAS.get(), steps, HERMITE?)
+            # assert status == idas.IDA_SUCCESS
+
             status = idas.IDARootInit(
                 IDAS.get(), system._events.size_out(0)[0], system.eventsfunction
             )
@@ -200,88 +235,102 @@ class Sundials4PySolver(SolverMixin):
             # )
             # assert status == idas.IDA_SUCCESS
 
-            yarr = N_VGetNumpyArray(y)
-            yparr = N_VGetNumpyArray(yp)
-
-            t_start = time()
-            while last_t < next_t:
-                if one_step and 1:
-                    while True:
-                        status, tret = idas.IDASolve(
-                            IDAS.get(), next_t, y, yp, idas.IDA_ONE_STEP
-                        )
-                        self.store_result(np.copy(tret), np.copy(yarr), np.copy(yparr))
-                        if status in (idas.IDA_TSTOP_RETURN, idas.IDA_ROOT_RETURN):
-                            break
-
-                else:
-                    self.adj_system = None  # IT IS NOT ADDED YET
-                    if self.adj_system is not None:
-                        pass
-                    else:
-                        status, tret = idas.IDASolve(
-                            IDAS.get(), next_t, y, yp, idas.IDA_NORMAL
-                        )
-
-                    if status not in (
-                        idas.IDA_TSTOP_RETURN,
-                        idas.IDA_SUCCESS,
-                        idas.IDA_ROOT_RETURN,
-                    ):
-                        breakpoint()
-
+            # t_start = time()
+            # breakpoint()
+            if one_step and 1:
+                while True:
+                    status, tret = idas.IDASolve(
+                        IDAS.get(), next_t, y, yp, idas.IDA_ONE_STEP
+                    )
                     self.store_result(np.copy(tret), np.copy(yarr), np.copy(yparr))
-                # INSERT quad stuff
+                    if status in (idas.IDA_TSTOP_RETURN, idas.IDA_ROOT_RETURN):
+                        break
+                    # self.store_result(np.copy(tret), np.copy(yarr), np.copy(yparr))
 
-                if status == idas.IDA_ROOT_RETURN:
-                    rootsfound = np.zeros(system._events.size_out(0)[0], dtype=np.int32)
-                    idas.IDAGetRootInfo(IDAS.get(), rootsfound)
+            else:
+                self.adj_system = None  # IT IS NOT ADDED YET
+                if self.adj_system is not None:
+                    status, tret, ncheck = idas.IDASolveF(
+                        IDAS.get(), next_t, y, idas.IDA_NORMAL
+                    )
+                else:
+                    status, tret = idas.IDASolve(
+                        IDAS.get(), next_t, y, yp, idas.IDA_NORMAL
+                    )
+                self.store_result(np.copy(tret), np.copy(yarr), np.copy(yparr))
 
-                if status == idas.IDA_TSTOP_RETURN:
-                    print("hi")
-                    gs = system.events(results.t[-1], results.y[-1], results.yp[-1])
-                    min_e = np.abs(gs).min()
-                    rootsfound = (gs == min_e).astype(int)
-                    assert next_t == tret
+            """
+            if (self.system.dim_output and self.sen_system is None
+            and self.adjoint_system is None):
+                quad_status, tret = idas.IDAGetQuad(IDAS.get(), Q)
+                assert quad_status == idas.IDA_SUCCESS
+                results.o = Qarr[:] + system.terminal_terms(tret, yarr[:], yparr[:])
+            """
 
-                if status in (
-                    idas.IDA_TSTOP_RETURN,
-                    idas.IDA_ROOT_RETURN,
-                    idas.IDA_SUCCESS,
-                ):
-                    idx = len(results.t)
-                    results.e.append(Root(idx, rootsfound))
-                    if (
-                        rootsfound[system.terminating] != 0
-                    ):  # update regardless, remove this if statement
-                        next_x, next_xp = system.pass_through_update(
-                            rootsfound, results.t[-1], results.y[-1], results.yp[-1]
-                        )
-                    else:
-                        next_x, next_xp = system.update(
-                            rootsfound, results.t[-1], results.y[-1], results.yp[-1]
-                        )
-                    try:
-                        terminate = np.any(rootsfound[system.terminating] != 0)
+            if status == idas.IDA_ROOT_RETURN:
+                rootsfound = np.zeros(system._events.size_out(0)[0], dtype=np.int32)
+                idas.IDAGetRootInfo(IDAS.get(), rootsfound)
 
-                    except Exception as e:
-                        print("Hit exemption:")
-                        print(e)
-                        print("You may try to continue through or exit")
-                        breakpoint()
-                    self.store_result(np.copy(tret), np.copy(next_x), np.copy(next_xp))
+            if status == idas.IDA_TSTOP_RETURN:
+                print("hi")
+                gs = system.events(results.t[-1], results.y[-1], results.yp[-1])
+                min_e = np.abs(gs).min()
+                rootsfound = (gs == min_e).astype(int)
+                assert next_t == tret
 
-                yarr[:] = next_x
-                yparr[:] = next_xp
-                if terminate:
-                    break
-                status = idas.IDAReInit(IDAS.get(), results.t[-1], y, yp)
-                assert status == idas.IDA_SUCCESS
+            if status in (
+                idas.IDA_TSTOP_RETURN,
+                idas.IDA_ROOT_RETURN,
+                idas.IDA_SUCCESS,
+            ):
+                idx = len(results.t)
+                results.e.append(Root(idx, rootsfound))
+                # if (
+                #     rootsfound[system.terminating] != 0
+                # ):  # update regardless, remove this if statement
+                #     next_x, next_xp = system.pass_through_update(
+                #         rootsfound, results.t[-1], results.y[-1], results.yp[-1]
+                #     )
+                # else:
+                next_x, next_xp = system.update(
+                    rootsfound, results.t[-1], results.y[-1], results.yp[-1]
+                )
 
-                last_t = tret
-                # breakpoint()
-            print("Solve took:", time() - t_start)
-        # adjoint solve
+                # terminate = np.any(rootsfound[system.terminating] != 0)
+                terminate = any(rootsfound[i] != 0 for i in system.terminating)
+                grab_next_t = any(rootsfound[i] != 0 for i in system.time_triggering)
+
+                self.store_result(np.copy(tret), np.copy(next_x), np.copy(next_xp))
+
+            yarr[:] = next_x
+            yparr[:] = next_xp
+            last_t = tret
+
+            if terminate:
+                breakpoint()
+                break
+
+            # status = idas.IDAReInit(IDAS.get(), results.t[-1], y, yp)
+            # assert status == idas.IDA_SUCCESS
+
+            # breakpoint()
+            # if terminate:
+            #     breakpoint()
+            #     break
+            # print("Solve took:", time() - t_start)
+
+        # if self.adjoint_system is None: #or test_out_vectors is None:
+        # return
+        # uB = self.uB
+        # qB = self.qB
+        # uBarr = N_VGetNumpyArray(uB)
+        # last_lambda = self.adjoint_system.initial_condition(tret, yarr[:])
+        # uBarr[:] = last_lambda
+
+        # qBarr = N_VGetNumpyArray(qB)
+        # qBarr[:] = self.adjoint_system.terminal_terms(tret, yarr[:])
+
+        # a bunch of adjoint stuff
 
 
 class Root(NamedTuple):
@@ -297,7 +346,6 @@ class DAESystem:
         self,
         dae_initial_conditions_solver,
         p,
-        parameter_names,
         final_time,
         start_time,
         state_count,
@@ -306,6 +354,7 @@ class DAESystem:
         events,
         event_solvers,
         terminating,
+        time_triggering,
         # sens_func,
         # sens_state_initial_condition_func,
         # sens_dot_initial_condition_func,
@@ -325,7 +374,6 @@ class DAESystem:
         self.dae_initial_condition_solver = dae_initial_conditions_solver
         self.p_model = p
         self.p = p.flatten().astype(sunrealtype)
-        self._parameter_names = parameter_names
 
         self.start_time = start_time
         self.final_time = final_time
@@ -335,7 +383,8 @@ class DAESystem:
         self._events = events
         self._event_solvers = event_solvers
         self.terminating = terminating
-
+        self.time_triggering = time_triggering
+        breakpoint()
         if self.analysis_options.get("one_step"):
             self.one_step = self.analysis_options.get("one_step")
         else:
@@ -351,7 +400,7 @@ class DAESystem:
 
         # self.sens_initial_state = sens_state_initial_condition_func(self.p)
         # self.sens_initial_dot = sens_dot_initial_condition_func(self.initial_state)
-
+        self.one_step = 1.0
         self.start_solver()
 
     def start_solver(self):
@@ -361,7 +410,7 @@ class DAESystem:
         y = N_VGetNumpyArray(yvec)
         yp = N_VGetNumpyArray(ypvec)
         res = N_VGetNumpyArray(resvec)
-        res[:, None] = self.residual_func(y, yp, self.p, t)
+        res[:, None] = self.residual_func(t, y, yp, self.p)
         return 0
 
     def eventsfunction(self, t, yvec, ypvec, evvec, _):
@@ -398,56 +447,63 @@ class DAESystem:
     def update(self, rootsfound, t, y, yp, *args):
         next_x = y
         next_xp = yp
+        # breakpoint()
+        # solver_idx = np.where(rootsfound != 0)[0].item()
+        for idx, root in enumerate(rootsfound):
+            # breakpoint()
+            if root != 0:
+                update_values = self._event_solvers[idx](t, self.p, next_x, next_xp)
+                next_x = update_values[0].reshape(-1)
+                next_xp = update_values[1].reshape(-1)
+        # update_values = self._event_solvers[solver_idx](t, self.p, y, yp)
 
-        values = np.concatenate((self.p, next_x, next_xp))
-        parameter_dict = dict(zip(self._parameter_names, values))
-        solver_idx = np.where(rootsfound != 0)[0].item()
-
-        if self._event_solvers[
-            solver_idx
-        ].residual._elements:  # don't look at the _elements
-            update_values = self._event_solvers[np.where(rootsfound != 0)[0].item()](
-                **parameter_dict
-            ).variable
-            return update_values.flatten()[: self.state_count], update_values.flatten()[
-                self.state_count :
-            ]
-        else:
-            next_x, next_xp = self.pass_through_update(rootsfound, t, y, yp)
-            return next_x, next_xp
+        return next_x, next_xp
+        # update_values[0].reshape(-1), update_values[1].reshape(-1)
+        # if self._event_solvers[
+        #     solver_idx
+        # ].residual._elements:  # don't look at the _elements
+        #     update_values = self._event_solvers[np.where(rootsfound != 0)[0].item()](
+        #         *values  # **parameter_dict
+        #     ).variable
+        #     return update_values.flatten()[: self.state_count], update_values.flatten()[
+        #         self.state_count :
+        #     ]
+        # else:
+        #     next_x, next_xp = self.pass_through_update(rootsfound, t, y, yp)
+        #     return next_x, next_xp
 
     def events(self, t, y, yp):
         return np.array(self._events(y, yp, self.result.p, t)).reshape(-1)
 
     def dae_initial_conditions(self, p):
-        initial_condition_values = self.dae_initial_condition_solver(**p)
+        ic_values = self.dae_initial_condition_solver(p)
 
-        return initial_condition_values.variable.flatten()[
-            : self.state_count
-        ], initial_condition_values.variable.flatten()[self.state_count :]
+        return ic_values[0].reshape(-1), ic_values[1].reshape(-1)
+
+    def terminal_terms(self, t, y, yp):
+        pass
+
+    def integrand_terms(self, t, y, yp):
+        pass
+
+    def jac(self, *args):
+        pass
 
     def __call__(self, p):
-        self.result = DAEResult(p=self.p, system=self)  # initialize the results?
+        self.result = IDAResult(p=self.p, system=self)  # initialize the results?
         self.system_solver.simulate(one_step=self.one_step, max_step=self.max_step)
         result = self.result
         result.t = np.array(result.t)
         result.y = np.array(result.y)
         result.yp = np.array(result.yp)
+        self.result = None
+
         return result
 
 
 @dataclass
-class ResultMixin:
-    p: list[float]
-
-
-@dataclass
-class ResultBase:
-    system: DAESystem
-    t: list[float] = field(default_factory=list)
-    y: list[list] = field(default_factory=list)
+class DAEResult(sgm.ResultBase, sgm.ResultMixin):
     yp: list[list] = field(default_factory=list)
-    e: list[Root] = field(default_factory=list)
 
     def __getitem__(self, key):
         return self.__class__(
@@ -469,6 +525,7 @@ class ResultBase:
             y=self.y,
             yp=self.yp,
             p=self.p,
+            o=self.o,
         )
 
     @classmethod
@@ -482,216 +539,14 @@ class ResultBase:
 
 
 @dataclass
-class DAEResult(ResultBase, ResultMixin):
-    pass
-
-
-class DAEResultSegmentInterpolant(NamedTuple):
-    interpolant: callable
-    idx0: int
-    idx1: int
-    t0: float
-    t1: float
-    y0: list[float]
-    y1: list[float]
-    yp0: list[float]
-    yp1: list[float]
-
-    def __call__(self, t):
-        return self.interpolant(t)
-
-
-@dataclass
-class ResultInterpolant:
-    result: DAEResult
-    function: callable = lambda p, t, y, yp: (y, yp)  # add xdot: xdot?
-    # don't pass interpolants to init?
-    # should state_Result be saved or just be an initvar? I back-references are OK so
-    # we can keep it...
-    interpolants: Optional[list[callable]] = None  # field(init=False)
-    time_bounds: Optional[list[float]] = None  # field(init=False)
-    time_comparison: callable = field(init=False)  # method
-    interval_select: int = field(init=False)
-    event_idxs: Optional[list] = None
-    max_deg: int = 3
-
-    def __post_init__(self):
-        # make interpolants
-        result = self.result
-        function = self.function
-        if self.event_idxs is None:
-            # currently expect each root.index to be to the right of each event so is
-            # the start of each segment, so zero belongs with this set by adding the
-            # element len(result.t), the slice of pairs slice(idx[i], idx[i+1])
-            # captures the whole segment including the last one.
-
-            self.event_idxs = np.array(
-                [root.index for root in result.e]
-            )  # + [len(result.t)])
-            if np.any(np.diff(self.event_idxs) < 1):
-                breakpoint()
-
-        event_idxs = self.event_idxs
-        if self.time_bounds is None:
-            self.time_bounds = np.empty(self.event_idxs.shape)
-            self.time_bounds[:-1] = np.array(result.t)[event_idxs[:-1]]
-            self.time_bounds[-1] = result.t[-1]
-        if result.t[-1] < result.t[0]:
-            self.time_comparison = self.time_bounds.__le__
-            self.interval_select = -1
-            self.time_sort = slice(None, None, -1)
-        else:
-            self.time_comparison = self.time_bounds.__ge__
-            self.interval_select = 0
-            self.time_sort = slice(None)
-
-        if self.interpolants is None:
-            # TODO figure out how to combine (and possibly reverse direction) state and
-            # parameter jacobian of state equation to reduce number of calls (and
-            # distance at each call), since this is potentially most expensive call -- I
-            # guess only if the ODE depends on inner-loop solver? then split
-            # coefficients
-            # --> then also combine e.g., adjoint forcing function and jacobian
-            # interpolant
-
-            # expect integrand-term related functions to be cheap functions of state
-            # point-wise along trajectory
-            try:
-                all_coeff_data = [
-                    [
-                        np.array(function(y, yp, result.p, t)).squeeze()
-                        for t, y, yp in zip(
-                            result.t[idx0:idx1],
-                            result.y[idx0:idx1],
-                            result.yp[idx0:idx1],
-                        )
-                    ]
-                    for idx0, idx1 in zip(event_idxs[:-1], event_idxs[1:])
-                ]
-            except Exception as my_e:
-                print(my_e)
-                breakpoint()
-                pass
-
-            self.interpolants = []
-            for idx0, idx1, coeff_data in zip(
-                event_idxs[:-1],
-                event_idxs[1:],
-                all_coeff_data,
-            ):
-                if np.all(np.diff(coeff_data, axis=0) == 0.0):
-                    try:
-                        interp = DAEResultSegmentInterpolant(
-                            make_interp_spline(
-                                result.t[idx0],
-                                [coeff_data[0]],
-                                k=0,
-                            ),
-                            idx0,
-                            idx1,
-                            result.t[idx0],
-                            result.t[idx1],
-                            result.y[idx0],
-                            result.y[idx1],
-                            result.yp[idx0],
-                            result.yp[idx1],
-                        )
-                    except Exception as my_e:
-                        print(my_e)
-                        breakpoint()
-
-                else:
-                    ts = result.t[idx0:idx1][self.time_sort]
-                    coefs = coeff_data[self.time_sort]
-
-                    for count, orig_idx in enumerate(np.where(np.diff(ts) <= 0)[0]):
-                        idx = count + orig_idx
-                        ts = ts[:idx] + ts[idx + 1 :]
-                        coefs = coefs[:idx] + coefs[idx + 1 :]
-                        print(
-                            f"stripping non-decreasing {ts[idx]} -- creating result "
-                            "interpolant"
-                        )
-
-                    try:
-                        interp = DAEResultSegmentInterpolant(
-                            make_interp_spline(
-                                ts,
-                                coefs,
-                                k=min(
-                                    self.max_deg, idx1 - idx0 - 1
-                                ),  # not needed with adaptive step size!
-                                # bc_type=["natural", "natural"],
-                            ),
-                            idx0,
-                            idx1,
-                            result.t[idx0],
-                            result.t[idx1],
-                            result.y[idx0],
-                            result.y[idx1],
-                            result.yp[idx0],
-                            result.yp[idx1],
-                        )
-                    except Exception as my_e:
-                        print(my_e)
-                        breakpoint()
-                        pass
-                self.interpolants.append(interp)
-                # if result.t[idx1] != result.t[idx0]
-
-    def __call__(self, t):
-        interval_idx = np.where(self.time_comparison(t))[0][self.interval_select] - 1
-        return self.interpolants[interval_idx](t)
-
-    def __iter__(self):
-        yield from self.interpolants
+class IDAResult(DAEResult):
+    IDAS_mems: list[idas.IDACreate] = field(default_factory=list)
+    adjoint_mems: list[idas.IDACreateB] = field(default_factory=list)
 
 
 # AdjointResultMixin
 
 # AdjointResult
-
-
-@dataclass
-class DAETrajectoryAnalysis:
-    state_system: DAESystem
-
-    # for constructing the output of the trajectory analysis
-    integrand_terms: callable = None
-    terminal_terms: callable = None
-
-    cache_size: int = 1
-
-    def __post_init__(self):
-        self.cached_p = None
-        # self.cached_output = None  # added this
-
-    def __call__(self, p):
-        # breakpoint()
-        if self.cached_p is not None and np.all(self.cached_p == p):
-            # breakpoint()
-            return self.cached_output
-        self.cached_p = p
-        result = self.res = self.state_system(p)
-
-        # evaluate the trajectory analysis of this result
-        # should this return a dataclass? Or just the vector of results?
-        integral = 0.0
-        integrand_interpolant = ResultInterpolant(
-            result=result, function=self.integrand_terms
-        )
-        for segment in integrand_interpolant:
-            integrand_antideriv = segment.interpolant.antiderivative()
-            integral += integrand_antideriv(segment.t1) - integrand_antideriv(
-                segment.t0
-            )
-        self.cached_output = (
-            self.terminal_terms(result.y[-1], result.yp[-1], result.p, result.t[-1])
-            + integral
-        )
-        breakpoint()
-        return self.cached_output
-
 
 # SweepingGradientMethod
 

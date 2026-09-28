@@ -3,6 +3,7 @@ import numpy as np
 
 from condor.dae.model_templates import DAESystem
 from condor.backend.operators import pi
+from time import time
 
 
 class DoublePendulumProblem(DAESystem):
@@ -17,8 +18,6 @@ class DoublePendulumProblem(DAESystem):
     theta1 = parameter()
     theta2 = parameter()
 
-    t0 = 0
-    tf = 100
     x1 = state(initializer=0.7)
     y1 = state(initializer=-0.7)
     x2 = state(initializer=1.2)
@@ -66,19 +65,23 @@ class DoublePendulumProblem(DAESystem):
     )
 
     class Options:
-        # num_steps = 10000
-        linspace = True
-        # solver_kind =
+        one_step = 1
+        # max_step = 0.01
 
 
-sim2 = DoublePendulumProblem(
+class DoublePendulumAnalysis(DoublePendulumProblem.DAEAnalysis):
+    t0 = 0
+    tf = 100
+
+
+sim2 = DoublePendulumAnalysis(
     L1_length_meter=1.0,
     L2_length_meter=1.0,
     g_const=9.81,
     m1_mass_kg=1.0,
     m2_mass_kg=1.0,
-    theta1=45,
-    theta2=30,
+    theta1=90,
+    theta2=90,
 )
 
 plt.plot(sim2.state.x1, sim2.state.y1)
