@@ -1094,6 +1094,7 @@ class TrajectoryAnalysis:
         self.cached_p = None
 
     def __call__(self, p):
+        # breakpoint()
         if self.cached_p is not None and np.all(self.cached_p == p):
             return self.cached_output
         self.cached_p = p

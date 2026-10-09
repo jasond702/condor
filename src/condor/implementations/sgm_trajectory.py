@@ -100,7 +100,7 @@ class TrajectoryAnalysis:
         ]
 
         self.traj_out_expr = model.trajectory_output.flatten()
-        breakpoint()
+        # breakpoint()
         self.can_sgm = isinstance(self.p, symbol_class) and isinstance(
             self.traj_out_expr, symbol_class
         )
@@ -328,7 +328,7 @@ class TrajectoryAnalysis:
         )
         self.state_system.model_instance = self.model_instance
         self.at_time_slices = at_time_slices
-        breakpoint()
+        # breakpoint()
         self.trajectory_analysis_nom = sgm.TrajectoryAnalysis(
             state_system=self.state_system,
             integrand_terms=self.traj_out_integrand_func,
@@ -586,7 +586,7 @@ class TrajectoryAnalysis:
     def __call__(self, model_instance):
         self.callback.from_implementation = True
         self.args = model_instance.parameter.flatten()
-        breakpoint()
+        # breakpoint()
         self.out = self.callback(self.args)
         self.callback.from_implementation = False
 
@@ -610,4 +610,4 @@ class TrajectoryAnalysis:
                 self.out,
             )
         )
-        breakpoint()
+        # breakpoint()

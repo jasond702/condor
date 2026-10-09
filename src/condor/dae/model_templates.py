@@ -47,7 +47,9 @@ class DAESystemType(ModelType):
     def process_placeholders(cls, new_cls, attrs):
         super().process_placeholders(new_cls, attrs)
         for elem in new_cls.residual:
+            # breakpoint()
             process_relational_element(elem)
+            # breakpoint()
         for elem in new_cls.initial_residual:
             process_relational_element(elem)
 

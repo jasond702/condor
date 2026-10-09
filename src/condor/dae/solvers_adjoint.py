@@ -39,12 +39,14 @@ class Sundials4PySolver(SolverMixin):
     def __init__(
         self,
         system,
+        sen_system=None,
+        adjoint_system=None,
         atol=1e-12,
         rtol=1e-10,
     ):
         self.system = system
-        # self.sen_system
-        # self.adjoint_system
+        self.sen_system = sen_system
+        self.adjoint_system = adjoint_system
         self.atol = atol
         self.rtol = rtol
 
@@ -53,17 +55,20 @@ class Sundials4PySolver(SolverMixin):
         assert status == SUN_SUCCESS
 
         # Initialize states and dots
-        self.y = N_VNew_Serial(system.NEQ, sunctx)
-        self.yp = N_VNew_Serial(system.NEQ, sunctx)
+        self.y = N_VNew_Serial(system.state_dim, sunctx)
+        self.yp = N_VNew_Serial(system.state_dim, sunctx)
         assert self.y is not None
         assert self.yp is not None
 
-        # self.Q <- for quadrature
+        self.Q = N_VNew_Serial(system.output_dim, sunctx)
+
         self.sunctx = sunctx
 
         # move solver (LS and NLS) here
         # set up linear solver
-        self.A = sun4py.core.SUNDenseMatrix(system.NEQ, system.NEQ, self.sunctx)
+        self.A = sun4py.core.SUNDenseMatrix(
+            system.state_dim, system.state_dim, self.sunctx
+        )
         assert self.A is not None
 
         self.LS = sun4py.core.SUNLinSol_Dense(self.y, self.A, self.sunctx)
@@ -74,9 +79,10 @@ class Sundials4PySolver(SolverMixin):
         assert self.NLS is not None
 
         # if adjoint_system is not None:
-        # self.uB
-        # self.qB
-        # self.lsb
+        #     self.uB
+        #     self.qB
+        #     self.lsb =
+        #     assert self.lsb is not None
 
     def assign_nvec_value(self, yvec, y0):
         y = N_VGetNumpyArray(yvec)
@@ -109,7 +115,7 @@ class Sundials4PySolver(SolverMixin):
         self.store_result(last_t, last_x, last_xp)
 
         rootsfound = (gs == 0.0).astype(int)
-
+        breakpoint()
         if np.any(rootsfound):
             last_x, last_xp = system.update(
                 rootsfound, last_t, np.copy(last_x), np.copy(last_xp)
@@ -131,8 +137,9 @@ class Sundials4PySolver(SolverMixin):
         self.assign_nvec_value(yp, last_xp)
         yarr = N_VGetNumpyArray(y)
         yparr = N_VGetNumpyArray(yp)
-
+        breakpoint()
         # Q = self.Q
+        # self.assign_nvec_value(Q, [0.0] * system.output_dim)
         # Qarr = N_VGetNumpyArray(Q)
         # Qarr[:] = 0.0
 
@@ -173,9 +180,13 @@ class Sundials4PySolver(SolverMixin):
             status = idas.IDASetNonlinearSolver(IDAS.get(), NLS)
             assert status == idas.IDA_SUCCESS
 
-            # if system.dim_output and self.sen_system is None and self.adjoint_system is None
-            # status = idas.IDAQuadInit(IDAS.get(), integrand terms, Q)
-            # assert status == idas.IDA_SUCCESS
+            # if (
+            #     system.output_dim
+            #     and self.sen_system is None
+            #     and self.adjoint_system is None
+            # ):
+            #     status = idas.IDAQuadInit(IDAS.get(), system.integrand_terms, Q)
+            #     assert status == idas.IDA_SUCCESS
 
             # if self.sen_system is not None and test_in is not None:
             # status = idas.IDASensInit()
@@ -242,7 +253,10 @@ class Sundials4PySolver(SolverMixin):
                     status, tret = idas.IDASolve(
                         IDAS.get(), next_t, y, yp, idas.IDA_ONE_STEP
                     )
+                    # breakpoint()
                     self.store_result(np.copy(tret), np.copy(yarr), np.copy(yparr))
+                    # if tret > 0.00001:
+                    # breakpoint()
                     if status in (idas.IDA_TSTOP_RETURN, idas.IDA_ROOT_RETURN):
                         break
                     # self.store_result(np.copy(tret), np.copy(yarr), np.copy(yparr))
@@ -258,6 +272,15 @@ class Sundials4PySolver(SolverMixin):
                         IDAS.get(), next_t, y, yp, idas.IDA_NORMAL
                     )
                 self.store_result(np.copy(tret), np.copy(yarr), np.copy(yparr))
+
+            # if (
+            #     system.output_dim
+            #     and self.sen_system is None
+            #     and self.adjoint_system is None
+            # ):
+            #     quad_status, tret = idas.IDAGetQuad(IDAS.get(), Q)
+            #     assert quad_status == idas.IDA_SUCCESS
+            #     results.o = Qarr[:] + system.terminal_terms(tret, yarr[:])
 
             """
             if (self.system.dim_output and self.sen_system is None
@@ -295,6 +318,7 @@ class Sundials4PySolver(SolverMixin):
                 next_x, next_xp = system.update(
                     rootsfound, results.t[-1], results.y[-1], results.yp[-1]
                 )
+                # breakpoint()
 
                 # terminate = np.any(rootsfound[system.terminating] != 0)
                 terminate = any(rootsfound[i] != 0 for i in system.terminating)
@@ -350,6 +374,7 @@ class DAESystem:
         start_time,
         state_count,
         count_diff,
+        output_count,
         residual_func,
         events,
         event_solvers,
@@ -358,12 +383,17 @@ class DAESystem:
         # sens_func,
         # sens_state_initial_condition_func,
         # sens_dot_initial_condition_func,
+        integrand_terms,
+        terminal_terms,
         time_generator,
         one_step=False,  # edit <- same for max_step, atol, rtol
         **analysis_options,
     ):
         self.state_count = state_count
-        self.NEQ = state_count
+
+        self.state_dim = state_count
+        self.output_dim = output_count
+
         self.analysis_options = analysis_options
         self.residual_func = residual_func
 
@@ -476,6 +506,7 @@ class DAESystem:
         return np.array(self._events(y, yp, self.result.p, t)).reshape(-1)
 
     def dae_initial_conditions(self, p):
+        # test = p
         ic_values = self.dae_initial_condition_solver(p)
 
         return ic_values[0].reshape(-1), ic_values[1].reshape(-1)
@@ -493,6 +524,7 @@ class DAESystem:
         self.result = IDAResult(p=self.p, system=self)  # initialize the results?
         self.system_solver.simulate(one_step=self.one_step, max_step=self.max_step)
         result = self.result
+        breakpoint()
         result.t = np.array(result.t)
         result.y = np.array(result.y)
         result.yp = np.array(result.yp)
@@ -504,6 +536,7 @@ class DAESystem:
 @dataclass
 class DAEResult(sgm.ResultBase, sgm.ResultMixin):
     yp: list[list] = field(default_factory=list)
+    o: list[float] = field(default_factory=list)
 
     def __getitem__(self, key):
         return self.__class__(
@@ -551,3 +584,25 @@ class IDAResult(DAEResult):
 # SweepingGradientMethod
 
 # DAETrajectoryAnalysisSGM?
+
+
+@dataclass
+class TrajectoryAnalysis:
+    state_system: DAESystem
+
+    # for constructing the output of the trajectory analysis
+    integrand_terms: callable = None
+    terminal_terms: callable = None
+
+    cache_size: int = 1
+
+    def __post_init__(self):
+        self.cached_p = None
+
+    def __call__(self, p):
+        if self.cached_p is not None and np.all(self.cached_p == p):
+            return self.cached_output
+        self.cached_p = p
+        result = self.res = self.state_system(p)
+        self.cached_output = result.o
+        return result.o

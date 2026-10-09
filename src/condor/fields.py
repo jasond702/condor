@@ -1012,18 +1012,32 @@ class FreeMatchedField(MatchedField, element_class=MatchedElement):
     def __setitem__(self, key, value):
         raise ValueError
 
-    def __getitem__(self, key, **kwargs):
+    def __getitem__(self, key):
         match = self.key_to_matched_element(key)
+        # breakpoint()
+        # super().process_field()
         item = self.get(match=match)
         # if the matching element does not exist then create the symbol
         if isinstance(item, list) and not item:  # based on FreeField()
-            backend_name = f"{self._resolve_name}_{len(self._elements)}"
+            # breakpoint()
+            backend_name = f"{self._resolve_name}_{len(self._elements)}"  # {match.name}"  # {len(self._elements)}"
             condor_name = f"{self._resolve_name}_{match.name}"
-            new_kwargs = make_backend_symbol(backend_name=backend_name, **kwargs)
+            symbol_data = backend.get_symbol_data(match.backend_repr)
+            new_kwargs = make_backend_symbol(
+                backend_name=backend_name, **asdict(symbol_data)
+            )
             self.create_element(**new_kwargs, match=match, name=condor_name)
+            # breakpoint()
             return self._elements[-1].backend_repr
         # otherwise return the symbol of the existing matching element
         return item.backend_repr
+
+    def process_field(self):
+        # breakpoint()
+        for element in self._matched_to:
+            # breakpoint()
+            self[element]
+        super().process_field()
 
 
 @dc.dataclass(repr=False)
