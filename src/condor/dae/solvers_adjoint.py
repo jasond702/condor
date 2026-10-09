@@ -77,12 +77,13 @@ class Sundials4PySolver(SolverMixin):
         # set up nonlinear solver
         self.NLS = sun4py.core.SUNNonlinSol_Newton(self.y, self.sunctx)
         assert self.NLS is not None
+        # there is a section of doing SUNNonlinSol_Auto, check that out maybe?
 
-        # if adjoint_system is not None:
-        #     self.uB
-        #     self.qB
-        #     self.lsb =
-        #     assert self.lsb is not None
+        if adjoint_system is not None:
+            self.uB = N_VNew_Serial(adjoint_system.state_dim, sunctx)
+            self.qB = N_VNew_Serial(adjoint_system.output_dim, sunctx)
+            self.LSB = sun4py.core.SUNLinSol_Dense(self.uB, 0, 3, sunctx)
+            assert self.LSB is not None
 
     def assign_nvec_value(self, yvec, y0):
         y = N_VGetNumpyArray(yvec)
@@ -95,6 +96,14 @@ class Sundials4PySolver(SolverMixin):
 
     def adjoint_dots(self):
         pass
+
+    def integrand_terms(self, t, y_sd, yp_sd, Qd_sd, _):
+        y = N_VGetNumpyArray(y_sd)
+        yp = N_VGetNumpyArray(yp_sd)
+        Qd = N_VGetNumpyArray(Qd_sd)
+        Qd[:] = self.system.integrand_terms(t, y, yp)
+
+        return 0
 
     def simulate(self, one_step, max_step, test_out_vectors=None):
         system = self.system
@@ -138,13 +147,19 @@ class Sundials4PySolver(SolverMixin):
         yarr = N_VGetNumpyArray(y)
         yparr = N_VGetNumpyArray(yp)
         breakpoint()
-        # Q = self.Q
-        # self.assign_nvec_value(Q, [0.0] * system.output_dim)
-        # Qarr = N_VGetNumpyArray(Q)
-        # Qarr[:] = 0.0
+
+        Q = self.Q
+        try:
+            Qarr = N_VGetNumpyArray(Q)
+            self.assign_nvec_value(Q, [0.0] * system.output_dim)
+        except RuntimeError:
+            # this is if there is no trajectory output,
+            # i.e. no integrand or integral terms
+            pass
 
         # if self.adjoint_system is not None and test_out_vectors is not None:
         breakpoint()
+
         grab_next_t = True
         while True:
             # move if grab_next_t
@@ -180,13 +195,17 @@ class Sundials4PySolver(SolverMixin):
             status = idas.IDASetNonlinearSolver(IDAS.get(), NLS)
             assert status == idas.IDA_SUCCESS
 
-            # if (
-            #     system.output_dim
-            #     and self.sen_system is None
-            #     and self.adjoint_system is None
-            # ):
-            #     status = idas.IDAQuadInit(IDAS.get(), system.integrand_terms, Q)
-            #     assert status == idas.IDA_SUCCESS
+            if (
+                system.output_dim
+                and self.sen_system is None
+                and self.adjoint_system is None
+            ):
+                status = idas.IDAQuadInit(IDAS.get(), self.integrand_terms, Q)
+                assert status == idas.IDA_SUCCESS
+
+            if self.sen_system is not None:
+                status = idas.IDASensInit()
+                assert status == idas.IDA_SUCCESS
 
             # if self.sen_system is not None and test_in is not None:
             # status = idas.IDASensInit()
@@ -272,23 +291,14 @@ class Sundials4PySolver(SolverMixin):
                         IDAS.get(), next_t, y, yp, idas.IDA_NORMAL
                     )
                 self.store_result(np.copy(tret), np.copy(yarr), np.copy(yparr))
-
-            # if (
-            #     system.output_dim
-            #     and self.sen_system is None
-            #     and self.adjoint_system is None
-            # ):
-            #     quad_status, tret = idas.IDAGetQuad(IDAS.get(), Q)
-            #     assert quad_status == idas.IDA_SUCCESS
-            #     results.o = Qarr[:] + system.terminal_terms(tret, yarr[:])
-
-            """
-            if (self.system.dim_output and self.sen_system is None
-            and self.adjoint_system is None):
+            if (
+                system.output_dim
+                and self.sen_system is None
+                and self.adjoint_system is None
+            ):
                 quad_status, tret = idas.IDAGetQuad(IDAS.get(), Q)
                 assert quad_status == idas.IDA_SUCCESS
                 results.o = Qarr[:] + system.terminal_terms(tret, yarr[:], yparr[:])
-            """
 
             if status == idas.IDA_ROOT_RETURN:
                 rootsfound = np.zeros(system._events.size_out(0)[0], dtype=np.int32)
@@ -414,6 +424,9 @@ class DAESystem:
         self._event_solvers = event_solvers
         self.terminating = terminating
         self.time_triggering = time_triggering
+
+        self._terminal_terms = terminal_terms
+        self._integrand_terms = integrand_terms
         breakpoint()
         if self.analysis_options.get("one_step"):
             self.one_step = self.analysis_options.get("one_step")
@@ -477,45 +490,29 @@ class DAESystem:
     def update(self, rootsfound, t, y, yp, *args):
         next_x = y
         next_xp = yp
-        # breakpoint()
-        # solver_idx = np.where(rootsfound != 0)[0].item()
+
         for idx, root in enumerate(rootsfound):
             # breakpoint()
             if root != 0:
                 update_values = self._event_solvers[idx](t, self.p, next_x, next_xp)
                 next_x = update_values[0].reshape(-1)
                 next_xp = update_values[1].reshape(-1)
-        # update_values = self._event_solvers[solver_idx](t, self.p, y, yp)
 
         return next_x, next_xp
-        # update_values[0].reshape(-1), update_values[1].reshape(-1)
-        # if self._event_solvers[
-        #     solver_idx
-        # ].residual._elements:  # don't look at the _elements
-        #     update_values = self._event_solvers[np.where(rootsfound != 0)[0].item()](
-        #         *values  # **parameter_dict
-        #     ).variable
-        #     return update_values.flatten()[: self.state_count], update_values.flatten()[
-        #         self.state_count :
-        #     ]
-        # else:
-        #     next_x, next_xp = self.pass_through_update(rootsfound, t, y, yp)
-        #     return next_x, next_xp
 
     def events(self, t, y, yp):
         return np.array(self._events(y, yp, self.result.p, t)).reshape(-1)
 
     def dae_initial_conditions(self, p):
-        # test = p
         ic_values = self.dae_initial_condition_solver(p)
 
         return ic_values[0].reshape(-1), ic_values[1].reshape(-1)
 
     def terminal_terms(self, t, y, yp):
-        pass
+        return np.array(self._terminal_terms(t, y, yp, self.p))
 
     def integrand_terms(self, t, y, yp):
-        pass
+        return np.array(self._integrand_terms(t, y, yp, self.p))
 
     def jac(self, *args):
         pass
@@ -528,6 +525,7 @@ class DAESystem:
         result.t = np.array(result.t)
         result.y = np.array(result.y)
         result.yp = np.array(result.yp)
+        result.o = np.array(result.o)
         self.result = None
 
         return result

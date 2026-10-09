@@ -540,25 +540,12 @@ class DAEAnalysisImplementation:
     def __call__(self, model_instance):
         self.soln = self.dae_analysis_soln(p=self.p)
 
-        # self.callback.from_implementation = True
-        # self.args = model_instance.parameter.flatten()
-        # self.out = self.callback(self.args)
-        self.out = 0
-        # self.callback.from_implementation = False
+        self.callback.function.from_implementation = True
+        self.args = model_instance.parameter.flatten()
+        self.out = self.callback(self.args)
+        self.callback.function.from_implementation = False
 
         model_instance.t = self.soln.t
-
-        dot_soln_list = []
-        dot_wrap = model_instance.__class__.dot.wrap(self.soln.yp.T)
-        for elem in model_instance.__class__.dot:
-            dot_soln_list.append(dot_wrap[elem.name])
-        dot_soln = np.concatenate(
-            [item.reshape(-1, len(self.soln.yp)) for item in dot_soln_list]
-        )
-        # breakpoint()
-        # test = fine[:2]
-        # model_instance.bind_field(model_instance.__class__.dot.wrap(dot_soln))
-        # model_instance.bind_field(model_instance.__class__.dot.wrap(self.soln.yp.T))
         breakpoint()
         model_instance.bind_field(model_instance.__class__.state.wrap(self.soln.y.T))
         model_instance.dot = model_instance.__class__.state.wrap(self.soln.yp.T)
