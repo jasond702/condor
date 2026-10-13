@@ -93,7 +93,7 @@ plt.legend(["y0", "y1", "y2"])
 plt.ylabel("Concentration, $c$")
 plt.xlabel("Time, $t$")
 # breakpoint()
-root_idx = [root.index for root in sim2.implementation.soln.e]
+root_idx = [root.index for root in sim2.res.e]
 plt.scatter(
     [
         sim2.t[root_idx[1]],

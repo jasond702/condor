@@ -519,36 +519,42 @@ class DAEAnalysisImplementation:
         )
 
         self.nominal_trajectory_analysis = TrajectoryAnalysis(
-            state_system=self.dae_analysis_soln,
+            state_system=self.dae_analysis_soln,  # this is a callback
             integrand_terms=self.trajectory_output_integrand_func,
             terminal_terms=self.trajectory_output_terminal_term_func,
         )
         self.callback = FunctionOperator(
-            function=self.nominal_trajectory_analysis,
+            function=self.nominal_trajectory_analysis,  # this is a callback
             get_jacobian_func=None,  # self.generate_sgm_jacobian if self.can_sgm else None
             input_symbol=self.p,
             output_symbol=self.trajectory_output_expr,
             implementation=self,
             jacobian_of=None,
         )
-        # update to CVODE branch
+
         self(model_instance)
 
-    def generate_sgm_jacobian():
+    def generate_sgm_jacobian(self, jacobian_of):
         pass
 
     def __call__(self, model_instance):
-        self.soln = self.dae_analysis_soln(p=self.p)
+        # self.soln = self.dae_analysis_soln(p=self.p)
 
         self.callback.function.from_implementation = True
         self.args = model_instance.parameter.flatten()
         self.out = self.callback(self.args)
         self.callback.function.from_implementation = False
 
-        model_instance.t = self.soln.t
         breakpoint()
-        model_instance.bind_field(model_instance.__class__.state.wrap(self.soln.y.T))
-        model_instance.dot = model_instance.__class__.state.wrap(self.soln.yp.T)
+
+        model_instance.res = self.nominal_trajectory_analysis.res
+        model_instance.t = model_instance.res.t
+        model_instance.bind_field(
+            model_instance.__class__.state.wrap(model_instance.res.y.T)
+        )
+        model_instance.dot = model_instance.__class__.state.wrap(
+            model_instance.res.yp.T
+        )
         # model_instance.bind_field(
         #     model_instance.__class__.dot.wrap(self.soln.yp.T.reshape(3, 1, 2111))
         # )

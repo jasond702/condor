@@ -117,6 +117,8 @@ class Sundials4PySolver(SolverMixin):
         SUNFALSE = 0
         SUNTRUE = 1
 
+        one_step = SUNTRUE if one_step is True else SUNFALSE
+
         time_generator = system.time_generator()
         last_t = next(time_generator)
 
@@ -396,7 +398,7 @@ class DAESystem:
         integrand_terms,
         terminal_terms,
         time_generator,
-        one_step=False,  # edit <- same for max_step, atol, rtol
+        # edit <- same for max_step, atol, rtol
         **analysis_options,
     ):
         self.state_count = state_count
@@ -428,10 +430,6 @@ class DAESystem:
         self._terminal_terms = terminal_terms
         self._integrand_terms = integrand_terms
         breakpoint()
-        if self.analysis_options.get("one_step"):
-            self.one_step = self.analysis_options.get("one_step")
-        else:
-            self.one_step = 0
         if self.analysis_options.get("max_step"):
             self.max_step = self.analysis_options.get("max_step")
         else:
@@ -443,7 +441,6 @@ class DAESystem:
 
         # self.sens_initial_state = sens_state_initial_condition_func(self.p)
         # self.sens_initial_dot = sens_dot_initial_condition_func(self.initial_state)
-        self.one_step = 1.0
         self.start_solver()
 
     def start_solver(self):
@@ -517,9 +514,12 @@ class DAESystem:
     def jac(self, *args):
         pass
 
-    def __call__(self, p):
+    def __call__(self, p, from_implementation):
         self.result = IDAResult(p=self.p, system=self)  # initialize the results?
-        self.system_solver.simulate(one_step=self.one_step, max_step=self.max_step)
+        breakpoint()
+        self.system_solver.simulate(
+            one_step=from_implementation, max_step=self.max_step
+        )
         result = self.result
         breakpoint()
         result.t = np.array(result.t)
@@ -601,6 +601,6 @@ class TrajectoryAnalysis:
         if self.cached_p is not None and np.all(self.cached_p == p):
             return self.cached_output
         self.cached_p = p
-        result = self.res = self.state_system(p)
+        result = self.res = self.state_system(p, self.from_implementation)
         self.cached_output = result.o
         return result.o
